@@ -1,5 +1,5 @@
+from groq import Groq
 from google import genai
-from google.genai import types
 from core.config import Config
 from core.document_manager import DocumentManager
 from core.recipe_manager import RecipeManager
@@ -55,8 +55,8 @@ class ConsultantAgent:
         self.recipe_manager = RecipeManager()
         self.genai_client = genai.Client(
             api_key=Config.GOOGLE_API_KEY,
-            http_options={"api_version": "v1"}
         )
+        self.groq_client = Groq(api_key=Config.GROQ_API_KEY)
 
     def build_context(self, query: str) -> tuple[str, list[str]]:
         intents = detect_intent(query)
@@ -98,29 +98,20 @@ class ConsultantAgent:
 
 Pregunta: {query}"""
 
-        messages = []
+        groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for msg in history[-6:]:
-            role = "user" if msg["role"] == "user" else "model"
-            messages.append(types.Content(
-                role=role,
-                parts=[types.Part(text=msg["content"])]
-            ))
+            groq_messages.append({
+                "role": msg["role"] if msg["role"] == "user" else "assistant",
+                "content": msg["content"]
+            })
+        groq_messages.append({"role": "user", "content": user_message})
 
-        messages.append(types.Content(
-            role="user",
-            parts=[types.Part(text=user_message)]
-        ))
-
-        response = self.genai_client.models.generate_content(
-            model=Config.GEMINI_MODEL,
-            contents=messages,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=Config.TEMPERATURE,
-                max_output_tokens=Config.MAX_TOKENS,
-            )
+        response = self.groq_client.chat.completions.create(
+            model=Config.GROQ_MODEL,
+            messages=groq_messages,
+            temperature=Config.TEMPERATURE,
+            max_tokens=Config.MAX_TOKENS,
         )
-
-        answer = response.text
+        answer = response.choices[0].message.content
         logger.info(f"Respuesta generada ({len(answer)} chars)")
         return answer, sources

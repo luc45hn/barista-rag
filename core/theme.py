@@ -20,44 +20,33 @@ STREAMLIT_CONFIG = """
     [data-testid="stSidebar"] {
         background-color: #3D2314;
     }
-    [data-testid="stSidebar"] * {
-        color: #F0E0C8;
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] div {
+        color: #F0E0C8 !important;
     }
-    .stChatMessage {
-        background-color: #FFFFFF;
-        border: 1px solid rgba(107,58,42,0.15);
-        border-radius: 12px;
+    [data-testid="stSidebar"] .stRadio label {
+        color: #F0E0C8 !important;
+    }
+    .stChatMessage p {
+        color: #2C1810 !important;
     }
     .stChatInput textarea {
         background-color: #F5ECD7;
         border: 1px solid #E8D5B0;
         border-radius: 10px;
-        color: #2C1810;
+        color: #2C1810 !important;
     }
     .stButton > button {
         background-color: #6B3A2A;
-        color: #F5ECD7;
+        color: #F5ECD7 !important;
         border: none;
         border-radius: 8px;
     }
     .stButton > button:hover {
         background-color: #2C1810;
-        color: #F5ECD7;
-    }
-    .param-tag {
-        background-color: #F0D9C0;
-        color: #6B3A2A;
-        padding: 3px 8px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 500;
-        display: inline-block;
-        margin: 2px;
-    }
-    .source-badge {
-        font-size: 11px;
-        color: #A07860;
-        margin-top: 4px;
+        color: #F5ECD7 !important;
     }
 </style>
 """

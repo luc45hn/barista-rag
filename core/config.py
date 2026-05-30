@@ -23,7 +23,7 @@ class Config:
     TOP_K_RESULTS: int = 4
 
     # LLM config
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     EMBEDDING_MODEL: str = "gemini-embedding-001"
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     TEMPERATURE: float = 0.3
