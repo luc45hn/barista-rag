@@ -7,6 +7,7 @@ class Config:
     # Supabase
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
 
     # LLMs
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
@@ -23,6 +24,7 @@ class Config:
 
     # LLM config
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    EMBEDDING_MODEL: str = "gemini-embedding-001"
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     TEMPERATURE: float = 0.3
     MAX_TOKENS: int = 1024
