@@ -1,0 +1,8 @@
+streamlit
+supabase
+google-generativeai
+groq
+langchain
+langchain-google-genai
+langchain-community
+python-dotenv
