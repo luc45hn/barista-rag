@@ -1,0 +1,20 @@
+create table recipes (
+  id                  uuid primary key default gen_random_uuid(),
+  cafe_name           text not null,
+  name                text not null,
+  method              text not null,
+  coffee_bean         text,
+  dose_g              numeric,
+  water_g             numeric,
+  ratio               text,
+  water_temp_c        numeric,
+  brew_time_seconds   integer,
+  yield_g             numeric,
+  grind_notes         text,
+  flavor_notes        text,
+  tips                text,
+  created_by          text not null,
+  approved            boolean not null default false,
+  approved_by         text,
+  created_at          timestamptz not null default now()
+);
