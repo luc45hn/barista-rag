@@ -179,6 +179,18 @@ st.markdown("""
     footer { visibility: hidden; }
     [data-testid="collapsedControl"] { display: none; }
 
+    /* Flecha del sidebar siempre blanca */
+    [data-testid="collapsedControl"],
+    [data-testid="collapsedControl"] *,
+    [data-testid="collapsedControl"] button,
+    [data-testid="collapsedControl"] button * {
+        display: block !important;
+        color: #F0E0C8 !important;
+        fill: #F0E0C8 !important;
+        stroke: #F0E0C8 !important;
+        background: transparent !important;
+    }
+
     /* Pills de consulta rápida en el chat */
     div[data-testid="column"] .stButton > button {
         background-color: #F0D9C0 !important;
@@ -192,6 +204,12 @@ st.markdown("""
     div[data-testid="column"] .stButton > button:hover {
         background-color: #E8C9A8 !important;
     }
+            /* Flecha del sidebar - forzar con atributo */
+span[data-testid="stIconMaterial"],
+span[data-testid="stIconMaterial"][color] {
+    color: #F0E0C8 !important;
+    -webkit-text-fill-color: #F0E0C8 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
