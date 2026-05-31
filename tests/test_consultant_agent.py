@@ -1,0 +1,110 @@
+import pytest
+from unittest.mock import MagicMock, patch
+from core.consultant_agent import ConsultantAgent, detect_intent
+
+def test_detect_intent_recipe():
+    intents = detect_intent("¿cómo preparo el V60?")
+    assert "recipe" in intents
+
+def test_detect_intent_troubleshoot():
+    intents = detect_intent("mi espresso sale muy ácido")
+    assert "troubleshoot" in intents
+
+def test_detect_intent_origin():
+    intents = detect_intent("¿qué café de Etiopía me recomendás?")
+    assert "origin" in intents
+
+def test_detect_intent_sensory():
+    intents = detect_intent("¿qué notas de sabor tiene este café?")
+    assert "sensory" in intents
+
+def test_detect_intent_multiple():
+    intents = detect_intent("el espresso de Etiopía me sale ácido")
+    assert "troubleshoot" in intents
+    assert "origin" in intents
+
+def test_detect_intent_general_fallback():
+    intents = detect_intent("hola cómo estás")
+    assert intents == ["general"]
+
+def test_detect_intent_case_insensitive():
+    intents = detect_intent("ESPRESSO TEMPERATURA")
+    assert "recipe" in intents
+
+@pytest.fixture
+def mock_agent():
+    with patch("core.consultant_agent.DocumentManager") as mock_dm, \
+         patch("core.consultant_agent.RecipeManager") as mock_rm, \
+         patch("core.consultant_agent.genai.Client"):
+        agent = ConsultantAgent()
+        agent.document_manager = MagicMock()
+        agent.recipe_manager = MagicMock()
+        agent.groq_client = MagicMock()
+        yield agent
+
+def test_chat_returns_answer_and_sources(mock_agent):
+    mock_agent.document_manager.search.return_value = [
+        {"content": "El espresso requiere 9 bar", "metadata": {"source": "04_espresso_fundamentos.md"}, "similarity": 0.85}
+    ]
+    mock_agent.document_manager.format_context.return_value = "El espresso requiere 9 bar"
+    mock_agent.recipe_manager.search_recipes.return_value = []
+    mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="El espresso necesita 9 bar de presión."))]
+    )
+    answer, sources = mock_agent.chat("¿cuánta presión necesita el espresso?")
+    assert isinstance(answer, str)
+    assert len(answer) > 0
+    assert isinstance(sources, list)
+
+def test_chat_prioritizes_own_recipes(mock_agent):
+    own_recipe = {"name": "V60 Etiopía", "method": "v60", "dose_g": 15, "water_g": 240}
+    mock_agent.recipe_manager.search_recipes.return_value = [own_recipe]
+    mock_agent.recipe_manager.format_recipes_context.return_value = "Receta propia: V60 Etiopía"
+    mock_agent.document_manager.search.return_value = []
+    mock_agent.document_manager.format_context.return_value = ""
+    mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="Tu receta de V60 usa 15g."))]
+    )
+    answer, sources = mock_agent.chat("cómo preparo el V60")
+    assert "Recetas propias" in sources
+
+def test_chat_with_history(mock_agent):
+    mock_agent.document_manager.search.return_value = []
+    mock_agent.document_manager.format_context.return_value = ""
+    mock_agent.recipe_manager.search_recipes.return_value = []
+    mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="Respuesta con contexto de historial."))]
+    )
+    history = [
+        {"role": "user", "content": "Hola"},
+        {"role": "assistant", "content": "Hola, soy Barista IA"},
+    ]
+    answer, sources = mock_agent.chat("¿y el cappuccino?", history=history)
+    call_args = mock_agent.groq_client.chat.completions.create.call_args
+    messages = call_args[1]["messages"]
+    assert any(m["content"] == "Hola" for m in messages)
+
+def test_chat_empty_context_still_responds(mock_agent):
+    mock_agent.document_manager.search.return_value = []
+    mock_agent.document_manager.format_context.return_value = ""
+    mock_agent.recipe_manager.search_recipes.return_value = []
+    mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="No tengo información específica sobre eso."))]
+    )
+    answer, sources = mock_agent.chat("pregunta muy específica sin contexto")
+    assert isinstance(answer, str)
+    assert sources == []
+
+def test_build_context_combines_recipes_and_docs(mock_agent):
+    mock_agent.recipe_manager.search_recipes.return_value = [
+        {"name": "Espresso", "method": "espresso", "dose_g": 18}
+    ]
+    mock_agent.recipe_manager.format_recipes_context.return_value = "Receta: Espresso"
+    mock_agent.document_manager.search.return_value = [
+        {"content": "El espresso tiene 9 bar", "metadata": {"source": "04_espresso_fundamentos.md"}}
+    ]
+    mock_agent.document_manager.format_context.return_value = "El espresso tiene 9 bar"
+    context, sources = mock_agent.build_context("espresso")
+    assert "Receta: Espresso" in context
+    assert "El espresso tiene 9 bar" in context
+    assert "Recetas propias" in sources
