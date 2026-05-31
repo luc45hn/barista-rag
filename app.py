@@ -267,13 +267,6 @@ def sidebar(supabase, recipe_manager):
             st.rerun()
 
         st.divider()
-        if st.button("↩  Cerrar sesión", use_container_width=True):
-            supabase.auth.sign_out()
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-
-        st.divider()
         st.markdown("**📚 Base de conocimiento**")
         if st.button("Ver documentos", use_container_width=True, key="ver_docs"):
             st.session_state.show_docs = not st.session_state.get("show_docs", False)
@@ -293,6 +286,13 @@ def sidebar(supabase, recipe_manager):
             ]
             for doc in docs:
                 st.caption(f"• {doc}")
+
+        st.divider()
+        if st.button("↩  Cerrar sesión", use_container_width=True):
+            supabase.auth.sign_out()
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
     return st.session_state.get("current_page", "💬 Chat")
 
