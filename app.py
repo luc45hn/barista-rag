@@ -259,6 +259,12 @@ def sidebar(supabase, recipe_manager):
         if st.button("➕  Nueva receta", use_container_width=True, key="nav_nueva"):
             st.session_state.current_page = "➕ Nueva receta"
             st.rerun()
+        if st.button("🎯  Nueva calibración", use_container_width=True, key="nav_calibracion"):
+            st.session_state.current_page = "🎯 Nueva calibración"
+            st.rerun()
+        if st.button("📖  Historial", use_container_width=True, key="nav_historial"):
+            st.session_state.current_page = "📖 Historial"
+            st.rerun()
 
         st.divider()
         st.markdown("**Consulta rápida**")
@@ -275,6 +281,27 @@ def sidebar(supabase, recipe_manager):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
+
+        st.divider()
+        st.markdown("**📚 Base de conocimiento**")
+        if st.button("Ver documentos", use_container_width=True, key="ver_docs"):
+            st.session_state.show_docs = not st.session_state.get("show_docs", False)
+
+        if st.session_state.get("show_docs", False):
+            docs = [
+                "SCA Brewing & Water Standards",
+                "SCA CVA Cupping Protocol",
+                "WCR Sensory Lexicon",
+                "Espresso Fundamentos",
+                "Orígenes del Café",
+                "Métodos Pour Over",
+                "Métodos Inmersión",
+                "Ciencia de Extracción",
+                "James Hoffmann Técnicas",
+                "Barista Hustle · Scott Rao",
+            ]
+            for doc in docs:
+                st.caption(f"• {doc}")
 
     return st.session_state.get("current_page", "💬 Chat")
 
@@ -367,6 +394,8 @@ def recipes_page(recipe_manager):
                 if r.get("flavor_notes"):
                     st.caption(f"🫖 {r['flavor_notes']}")
                 if st.button("✓ Aprobar receta", key=f"approve_{r['id']}", use_container_width=True):
+                    token = st.session_state.session.access_token
+                    recipe_manager.supabase.postgrest.auth(token)
                     recipe_manager.approve_recipe(r["id"], st.session_state.user.email)
                     st.rerun()
 
@@ -443,8 +472,167 @@ def new_recipe_page(recipe_manager):
                     "created_by": st.session_state.user.email,
                     "approved": False,
                 }
+                token = st.session_state.session.access_token
+                recipe_manager.supabase.postgrest.auth(token)
                 recipe_manager.create_recipe(recipe)
                 st.success("✅ Receta guardada. Queda pendiente de aprobación.")
+
+def calibration_page(supabase):
+    st.markdown("#### 🎯 Nueva calibración")
+    st.caption("Completá lo que tengas disponible — ningún campo es obligatorio")
+    st.divider()
+
+    with st.form("nueva_calibracion"):
+
+        st.markdown("**☁️ Condiciones ambientales**")
+        col1, col2, col3 = st.columns(3)
+        shift_moment = col1.selectbox("Momento del turno",
+            ["", "Apertura", "Media jornada", "Tarde", "Cierre"],
+            index=0)
+        room_temp_c = col2.number_input("Temperatura (°C)", min_value=0.0, step=0.5, value=0.0)
+        humidity_pct = col3.number_input("Humedad (%)", min_value=0.0, max_value=100.0, step=1.0, value=0.0)
+
+        st.divider()
+        st.markdown("**☕ El café**")
+        col1, col2 = st.columns(2)
+        coffee_name = col1.text_input("Nombre del café", placeholder="Etiopía Yirgacheffe")
+        roaster_name = col2.text_input("Tostador", placeholder="El Molino")
+
+        col1, col2, col3 = st.columns(3)
+        roast_date = col1.date_input("Fecha de tueste", value=None)
+        varietal = col2.text_input("Varietal", placeholder="Heirloom")
+        process = col3.selectbox("Proceso", ["", "Lavado", "Natural", "Honey", "Anaeróbico", "Otro"])
+
+        col1, col2 = st.columns(2)
+        origin = col1.text_input("Origen / Región", placeholder="Gedeo Zone, Etiopía")
+        altitude_masl = col2.number_input("Altitud (msnm)", min_value=0, step=50, value=0)
+
+        st.divider()
+        st.markdown("**⚙️ Equipo**")
+        col1, col2, col3 = st.columns(3)
+        grinder_name = col1.text_input("Molino", placeholder="Mahlkönig EK43")
+        grinder_setting = col2.text_input("Ajuste de molienda", placeholder="14 / 3 clicks más fino")
+        hopper_level = col3.selectbox("Nivel del hopper", ["", "Lleno", "Mitad", "Bajo"])
+
+        col1, col2 = st.columns(2)
+        machine_name = col1.text_input("Máquina", placeholder="La Marzocco Linea")
+        group_temp_c = col2.number_input("Temperatura de grupo (°C)", min_value=0.0, step=0.5, value=0.0)
+
+        st.divider()
+        st.markdown("**📊 Parámetros encontrados**")
+        col1, col2, col3, col4 = st.columns(4)
+        dose_g = col1.number_input("Dosis (g)", min_value=0.0, step=0.5, value=0.0)
+        yield_g = col2.number_input("Rendimiento (g)", min_value=0.0, step=0.5, value=0.0)
+        brew_time_secs = col3.number_input("Tiempo (s)", min_value=0, step=1, value=0)
+        tds = col4.number_input("TDS (%)", min_value=0.0, step=0.01, value=0.0)
+
+        st.divider()
+        st.markdown("**👅 Evaluación sensorial**")
+        col1, col2 = st.columns(2)
+        extraction_balance = col1.selectbox("Balance",
+            ["", "Subextraído", "Balanceado", "Sobreextraído"])
+        approved = col2.checkbox("✓ Calibración aprobada")
+
+        col1, col2, col3 = st.columns(3)
+        acidity = col1.slider("Acidez", 0, 5, 0)
+        sweetness = col2.slider("Dulzura", 0, 5, 0)
+        bitterness = col3.slider("Amargor", 0, 5, 0)
+
+        flavor_notes = st.text_input("Notas de sabor",
+            placeholder="Jazmín, limón, chocolate...")
+        adjustment_vs_prev = st.text_input("Ajuste respecto a calibración anterior",
+            placeholder="Molí 2 clicks más fino por humedad alta")
+        free_notes = st.text_area("Notas libres",
+            placeholder="Cualquier observación del día...", height=80)
+
+        submitted = st.form_submit_button("💾 Guardar calibración", use_container_width=True)
+
+        if submitted:
+            days_since_roast = None
+            if roast_date:
+                from datetime import date
+                days_since_roast = (date.today() - roast_date).days
+
+            ratio = f"1:{round(yield_g/dose_g, 1)}" if dose_g > 0 and yield_g > 0 else None
+
+            data = {
+                "shift_moment": shift_moment or None,
+                "room_temp_c": room_temp_c or None,
+                "humidity_pct": humidity_pct or None,
+                "coffee_name": coffee_name or None,
+                "roaster_name": roaster_name or None,
+                "roast_date": roast_date.isoformat() if roast_date else None,
+                "days_since_roast": days_since_roast,
+                "varietal": varietal or None,
+                "process": process or None,
+                "origin": origin or None,
+                "altitude_masl": altitude_masl or None,
+                "grinder_name": grinder_name or None,
+                "grinder_setting": grinder_setting or None,
+                "hopper_level": hopper_level or None,
+                "machine_name": machine_name or None,
+                "group_temp_c": group_temp_c or None,
+                "dose_g": dose_g or None,
+                "yield_g": yield_g or None,
+                "brew_time_seconds": brew_time_secs or None,
+                "ratio": ratio,
+                "tds": tds or None,
+                "extraction_balance": extraction_balance or None,
+                "approved": approved,
+                "acidity": acidity or None,
+                "sweetness": sweetness or None,
+                "bitterness": bitterness or None,
+                "flavor_notes": flavor_notes or None,
+                "adjustment_vs_prev": adjustment_vs_prev or None,
+                "free_notes": free_notes or None,
+                "created_by": st.session_state.user.email,
+            }
+            token = st.session_state.session.access_token
+            supabase.postgrest.auth(token)
+            supabase.table("calibrations").insert(data).execute()
+            st.success("✅ Calibración guardada.")
+
+def calibrations_history_page(supabase):
+    st.markdown("#### 📖 Historial de calibraciones")
+    st.divider()
+
+    token = st.session_state.session.access_token
+    supabase.postgrest.auth(token)
+    response = supabase.table("calibrations").select("*").order("recorded_at", desc=True).limit(20).execute()
+    calibrations = response.data or []
+
+    if not calibrations:
+        st.info("Todavía no hay calibraciones guardadas.")
+        return
+
+    for c in calibrations:
+        from datetime import datetime
+        dt = datetime.fromisoformat(c["recorded_at"].replace("Z", "+00:00"))
+        label = f"{dt.strftime('%d/%m %H:%M')} — {c.get('coffee_name') or 'Sin nombre'}"
+        if c.get("approved"):
+            label = "✅ " + label
+        with st.expander(label):
+            col1, col2, col3 = st.columns(3)
+            if c.get("shift_moment"):
+                col1.write(f"**Turno:** {c['shift_moment']}")
+            if c.get("room_temp_c"):
+                col2.write(f"**Temp ambiente:** {c['room_temp_c']}°C")
+            if c.get("humidity_pct"):
+                col3.write(f"**Humedad:** {c['humidity_pct']}%")
+            if c.get("grinder_setting"):
+                col1.write(f"**Molienda:** {c['grinder_setting']}")
+            if c.get("dose_g") and c.get("yield_g"):
+                col2.write(f"**Ratio:** {c.get('ratio', '-')}")
+            if c.get("brew_time_seconds"):
+                col3.write(f"**Tiempo:** {c['brew_time_seconds']}s")
+            if c.get("extraction_balance"):
+                st.write(f"**Balance:** {c['extraction_balance']}")
+            if c.get("flavor_notes"):
+                st.caption(f"🫖 {c['flavor_notes']}")
+            if c.get("free_notes"):
+                st.info(c["free_notes"])
+            if c.get("adjustment_vs_prev"):
+                st.caption(f"🔧 {c['adjustment_vs_prev']}")
 
 def main():
     Config.validate()
@@ -465,6 +653,10 @@ def main():
         recipes_page(recipe_manager)
     elif page == "➕ Nueva receta":
         new_recipe_page(recipe_manager)
+    elif page == "🎯 Nueva calibración":
+        calibration_page(supabase)
+    elif page == "📖 Historial":
+        calibrations_history_page(supabase)
 
 if __name__ == "__main__":
     main()

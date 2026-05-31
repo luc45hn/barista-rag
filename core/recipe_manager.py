@@ -8,7 +8,7 @@ class RecipeManager:
     def __init__(self):
         self.supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
 
-    def get_approved_recipes(self, method: str = None) -> list[dict]:
+    def get_approved_recipes(self, method: str = None, all_users: bool = True) -> list[dict]:
         query = self.supabase.table("recipes").select("*").eq("approved", True)
         if method:
             query = query.eq("method", method)
@@ -77,7 +77,7 @@ class RecipeManager:
 
     def search_recipes(self, query: str) -> list[dict]:
         query_lower = query.lower()
-        recipes = self.get_approved_recipes()
+        recipes = self.get_approved_recipes(all_users=True)
         relevant = []
         for recipe in recipes:
             searchable = " ".join([
