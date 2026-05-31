@@ -315,7 +315,7 @@ def chat_page(agent):
         quick = st.session_state.pop("quick_query")
         st.session_state.messages.append({"role": "user", "content": quick})
         with st.spinner(""):
-            answer, sources = agent.chat(quick, st.session_state.messages[:-1])
+            answer, sources = agent.chat(quick, st.session_state.messages[:-1], user_email=st.session_state.user.email)
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
@@ -359,7 +359,7 @@ def chat_page(agent):
             st.write(prompt)
         with st.chat_message("assistant", avatar="☕"):
             with st.spinner(""):
-                answer, sources = agent.chat(prompt, st.session_state.messages[:-1])
+                answer, sources = agent.chat(prompt, st.session_state.messages[:-1], user_email=st.session_state.user.email)
             st.write(answer)
             if sources:
                 st.markdown(

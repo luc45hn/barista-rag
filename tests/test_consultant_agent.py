@@ -104,7 +104,7 @@ def test_build_context_combines_recipes_and_docs(mock_agent):
         {"content": "El espresso tiene 9 bar", "metadata": {"source": "04_espresso_fundamentos.md"}}
     ]
     mock_agent.document_manager.format_context.return_value = "El espresso tiene 9 bar"
-    context, sources = mock_agent.build_context("espresso")
+    context, sources, intents, own_recipes, doc_results = mock_agent.build_context("espresso")
     assert "Receta: Espresso" in context
     assert "El espresso tiene 9 bar" in context
     assert "Recetas propias" in sources

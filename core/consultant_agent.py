@@ -1,5 +1,6 @@
 from groq import Groq
 from google import genai
+from supabase import create_client
 from core.config import Config
 from core.document_manager import DocumentManager
 from core.recipe_manager import RecipeManager
@@ -57,8 +58,9 @@ class ConsultantAgent:
             api_key=Config.GOOGLE_API_KEY,
         )
         self.groq_client = Groq(api_key=Config.GROQ_API_KEY)
+        self.supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
 
-    def build_context(self, query: str) -> tuple[str, list[str]]:
+    def build_context(self, query: str) -> tuple[str, list[str], list[str], list[dict], list[dict]]:
         intents = detect_intent(query)
         logger.info(f"Intents detectados: {intents}")
 
@@ -83,13 +85,13 @@ class ConsultantAgent:
                 if source and source not in sources:
                     sources.append(source)
 
-        return "\n\n".join(context_parts), sources
+        return "\n\n".join(context_parts), sources, intents, own_recipes, doc_results
 
-    def chat(self, query: str, history: list[dict] = None) -> tuple[str, list[str]]:
+    def chat(self, query: str, history: list[dict] = None, user_email: str = "") -> tuple[str, list[str]]:
         history = history or []
         logger.info(f"Query: '{query[:80]}'")
 
-        context, sources = self.build_context(query)
+        context, sources, intents, own_recipes, doc_results = self.build_context(query)
 
         user_message = query
         if context:
@@ -114,4 +116,16 @@ Pregunta: {query}"""
         )
         answer = response.choices[0].message.content
         logger.info(f"Respuesta generada ({len(answer)} chars)")
+
+        try:
+            self.supabase.table("query_logs").insert({
+                "user_email": user_email,
+                "query": query,
+                "intents": intents,
+                "chunks_found": len(doc_results),
+                "had_own_recipes": len(own_recipes) > 0,
+            }).execute()
+        except Exception as e:
+            logger.warning(f"No se pudo guardar el log: {e}")
+
         return answer, sources
