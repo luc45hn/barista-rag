@@ -385,8 +385,6 @@ def recipes_page(recipe_manager):
                 if r.get("flavor_notes"):
                     st.caption(f"🫖 {r['flavor_notes']}")
                 if st.button("✓ Aprobar receta", key=f"approve_{r['id']}", use_container_width=True):
-                    token = st.session_state.session.access_token
-                    recipe_manager.supabase.postgrest.auth(token)
                     recipe_manager.approve_recipe(r["id"], st.session_state.user.email)
                     st.rerun()
 
@@ -463,8 +461,6 @@ def new_recipe_page(recipe_manager):
                     "created_by": st.session_state.user.email,
                     "approved": False,
                 }
-                token = st.session_state.session.access_token
-                recipe_manager.supabase.postgrest.auth(token)
                 recipe_manager.create_recipe(recipe)
                 st.success("✅ Receta guardada. Queda pendiente de aprobación.")
 
@@ -578,8 +574,6 @@ def calibration_page(supabase):
                 "free_notes": free_notes or None,
                 "created_by": st.session_state.user.email,
             }
-            token = st.session_state.session.access_token
-            supabase.postgrest.auth(token)
             supabase.table("calibrations").insert(data).execute()
             st.success("✅ Calibración guardada.")
 
@@ -587,8 +581,6 @@ def calibrations_history_page(supabase):
     st.markdown("#### 📖 Historial de calibraciones")
     st.divider()
 
-    token = st.session_state.session.access_token
-    supabase.postgrest.auth(token)
     response = supabase.table("calibrations").select("*").order("recorded_at", desc=True).limit(20).execute()
     calibrations = response.data or []
 
@@ -633,7 +625,12 @@ def main():
         login_page(supabase)
         return
 
+    token = st.session_state.session.access_token
+    supabase.postgrest.auth(token)
+
     recipe_manager = RecipeManager()
+    recipe_manager.supabase.postgrest.auth(token)
+
     agent = ConsultantAgent()
 
     page = sidebar(supabase, recipe_manager)
