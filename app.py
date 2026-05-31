@@ -267,15 +267,6 @@ def sidebar(supabase, recipe_manager):
             st.rerun()
 
         st.divider()
-        st.markdown("**Consulta rápida**")
-        quick_queries = ["V60", "Espresso", "Leche", "Defectos", "Orígenes", "Extracción"]
-        for q in quick_queries:
-            if st.button(q, use_container_width=True, key=f"quick_{q}"):
-                st.session_state.quick_query = q
-                st.session_state.current_page = "💬 Chat"
-                st.rerun()
-
-        st.divider()
         if st.button("↩  Cerrar sesión", use_container_width=True):
             supabase.auth.sign_out()
             for key in list(st.session_state.keys()):
