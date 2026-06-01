@@ -252,9 +252,22 @@ def sidebar(supabase, recipe_manager):
         user_email = st.session_state.user.email
         user_name = user_email.split("@")[0].capitalize()
 
-        st.markdown(f"### ☕ Barista IA")
-        st.markdown(f"👤 **{user_name}**")
-        st.divider()
+        user_initials = user_name[:2].upper()
+        st.markdown(f"""
+<div style="padding: 4px 0 16px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 16px;">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+        <div style="width:36px; height:36px; border-radius:10px; background:#C4956A; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">☕</div>
+        <div>
+            <div style="font-size:17px; font-weight:600; color:#F5ECD7; letter-spacing:-0.3px;">Barista IA</div>
+            <div style="font-size:11px; color:#A07860; text-transform:uppercase; letter-spacing:0.3px;">Asistente de entrenamiento</div>
+        </div>
+    </div>
+    <div style="background:rgba(255,255,255,0.07); border-radius:10px; padding:10px 12px; display:flex; align-items:center; gap:10px;">
+        <div style="width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,#C4956A,#8B5E3C); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; color:#F5ECD7; flex-shrink:0;">{user_initials}</div>
+        <div style="font-size:14px; font-weight:500; color:#F0E0C8;">{user_name}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
         st.markdown("**Menú**")
         if st.button("💬  Chat", use_container_width=True, key="nav_chat"):
