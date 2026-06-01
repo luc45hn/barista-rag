@@ -106,7 +106,7 @@ Pregunta: {query}"""
             max_tokens=Config.MAX_TOKENS,
         )
 
-        answer = response.text if hasattr(response, 'text') else response.choices[0].message.content
+        answer = response.choices[0].message.content
         logger.info(f"Respuesta generada ({len(answer)} chars)")
 
         try:

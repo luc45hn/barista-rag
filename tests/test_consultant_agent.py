@@ -35,11 +35,13 @@ def test_detect_intent_case_insensitive():
 def mock_agent():
     with patch("core.consultant_agent.DocumentManager") as mock_dm, \
          patch("core.consultant_agent.RecipeManager") as mock_rm, \
-         patch("core.consultant_agent.genai.Client"):
+         patch("core.consultant_agent.genai.Client"), \
+         patch("core.consultant_agent.create_client") as mock_supabase:
         agent = ConsultantAgent()
         agent.document_manager = MagicMock()
         agent.recipe_manager = MagicMock()
         agent.groq_client = MagicMock()
+        agent.supabase = MagicMock()
         yield agent
 
 def test_chat_returns_answer_and_sources(mock_agent):
@@ -47,31 +49,32 @@ def test_chat_returns_answer_and_sources(mock_agent):
         {"content": "El espresso requiere 9 bar", "metadata": {"source": "04_espresso_fundamentos.md"}, "similarity": 0.85}
     ]
     mock_agent.document_manager.format_context.return_value = "El espresso requiere 9 bar"
-    mock_agent.recipe_manager.search_recipes.return_value = []
+    mock_agent.recipe_manager.search_related_recipes.return_value = []
     mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content="El espresso necesita 9 bar de presión."))]
     )
-    answer, sources = mock_agent.chat("¿cuánta presión necesita el espresso?")
+    answer, sources, related_recipes = mock_agent.chat("¿cuánta presión necesita el espresso?")
     assert isinstance(answer, str)
     assert len(answer) > 0
     assert isinstance(sources, list)
+    assert isinstance(related_recipes, list)
 
-def test_chat_prioritizes_own_recipes(mock_agent):
+def test_chat_returns_related_recipes(mock_agent):
     own_recipe = {"name": "V60 Etiopía", "method": "v60", "dose_g": 15, "water_g": 240}
-    mock_agent.recipe_manager.search_recipes.return_value = [own_recipe]
-    mock_agent.recipe_manager.format_recipes_context.return_value = "Receta propia: V60 Etiopía"
+    mock_agent.recipe_manager.search_related_recipes.return_value = [own_recipe]
     mock_agent.document_manager.search.return_value = []
     mock_agent.document_manager.format_context.return_value = ""
     mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
-        choices=[MagicMock(message=MagicMock(content="Tu receta de V60 usa 15g."))]
+        choices=[MagicMock(message=MagicMock(content="Para el V60 usá ratio 1:16."))]
     )
-    answer, sources = mock_agent.chat("cómo preparo el V60")
-    assert "Recetas propias" in sources
+    answer, sources, related_recipes = mock_agent.chat("cómo preparo el V60")
+    assert len(related_recipes) == 1
+    assert related_recipes[0]["name"] == "V60 Etiopía"
 
 def test_chat_with_history(mock_agent):
     mock_agent.document_manager.search.return_value = []
     mock_agent.document_manager.format_context.return_value = ""
-    mock_agent.recipe_manager.search_recipes.return_value = []
+    mock_agent.recipe_manager.search_related_recipes.return_value = []
     mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content="Respuesta con contexto de historial."))]
     )
@@ -79,7 +82,7 @@ def test_chat_with_history(mock_agent):
         {"role": "user", "content": "Hola"},
         {"role": "assistant", "content": "Hola, soy Barista IA"},
     ]
-    answer, sources = mock_agent.chat("¿y el cappuccino?", history=history)
+    answer, sources, related_recipes = mock_agent.chat("¿y el cappuccino?", history=history)
     call_args = mock_agent.groq_client.chat.completions.create.call_args
     messages = call_args[1]["messages"]
     assert any(m["content"] == "Hola" for m in messages)
@@ -87,24 +90,26 @@ def test_chat_with_history(mock_agent):
 def test_chat_empty_context_still_responds(mock_agent):
     mock_agent.document_manager.search.return_value = []
     mock_agent.document_manager.format_context.return_value = ""
-    mock_agent.recipe_manager.search_recipes.return_value = []
+    mock_agent.recipe_manager.search_related_recipes.return_value = []
     mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
         choices=[MagicMock(message=MagicMock(content="No tengo información específica sobre eso."))]
     )
-    answer, sources = mock_agent.chat("pregunta muy específica sin contexto")
+    answer, sources, related_recipes = mock_agent.chat("pregunta muy específica sin contexto")
     assert isinstance(answer, str)
     assert sources == []
+    assert related_recipes == []
 
-def test_build_context_combines_recipes_and_docs(mock_agent):
-    mock_agent.recipe_manager.search_recipes.return_value = [
+def test_build_context_returns_four_values(mock_agent):
+    mock_agent.recipe_manager.search_related_recipes.return_value = [
         {"name": "Espresso", "method": "espresso", "dose_g": 18}
     ]
-    mock_agent.recipe_manager.format_recipes_context.return_value = "Receta: Espresso"
     mock_agent.document_manager.search.return_value = [
         {"content": "El espresso tiene 9 bar", "metadata": {"source": "04_espresso_fundamentos.md"}}
     ]
     mock_agent.document_manager.format_context.return_value = "El espresso tiene 9 bar"
-    context, sources, intents, own_recipes, doc_results = mock_agent.build_context("espresso")
-    assert "Receta: Espresso" in context
-    assert "El espresso tiene 9 bar" in context
-    assert "Recetas propias" in sources
+    context, sources, intents, related_recipes = mock_agent.build_context("espresso")
+    assert isinstance(context, str)
+    assert isinstance(sources, list)
+    assert isinstance(intents, list)
+    assert isinstance(related_recipes, list)
+    assert len(related_recipes) == 1

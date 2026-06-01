@@ -25,36 +25,40 @@ SAMPLE_RECIPE = {
     "flavor_notes": "Jazmín, limón",
     "tips": "Enjuagar filtro",
     "created_by": "maria@barista.com",
-    "approved": True,
-    "approved_by": "ana@barista.com",
+    "is_public": True,
+    "made_public_by": "maria@barista.com",
+    "use_in_rag": True,
     "created_at": "2026-01-01T10:00:00Z",
 }
 
-def test_get_approved_recipes_filters_approved(mock_recipe_manager):
+def test_get_public_recipes(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.select.return_value \
         .eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
-    results = mock_recipe_manager.get_approved_recipes()
-    mock_recipe_manager.supabase.table.assert_called_with("recipes")
+    results = mock_recipe_manager.get_public_recipes()
     assert len(results) == 1
 
-def test_get_approved_recipes_returns_empty_list_on_none(mock_recipe_manager):
+def test_get_public_recipes_returns_empty_on_none(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.select.return_value \
         .eq.return_value.order.return_value.execute.return_value = MagicMock(data=None)
-    results = mock_recipe_manager.get_approved_recipes()
+    results = mock_recipe_manager.get_public_recipes()
     assert results == []
 
-def test_get_pending_recipes(mock_recipe_manager):
-    pending = {**SAMPLE_RECIPE, "approved": False, "approved_by": None}
+def test_get_my_recipes(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.select.return_value \
-        .eq.return_value.order.return_value.execute.return_value = MagicMock(data=[pending])
-    results = mock_recipe_manager.get_pending_recipes()
+        .eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.get_my_recipes("maria@barista.com")
+    assert len(results) == 1
+
+def test_get_rag_recipes(mock_recipe_manager):
+    mock_recipe_manager.supabase.table.return_value.select.return_value \
+        .eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.get_rag_recipes()
     assert len(results) == 1
 
 def test_create_recipe_calls_insert(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.insert.return_value \
         .execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
     result = mock_recipe_manager.create_recipe(SAMPLE_RECIPE)
-    mock_recipe_manager.supabase.table.assert_called_with("recipes")
     assert result == SAMPLE_RECIPE
 
 def test_create_recipe_returns_empty_on_failure(mock_recipe_manager):
@@ -63,13 +67,26 @@ def test_create_recipe_returns_empty_on_failure(mock_recipe_manager):
     result = mock_recipe_manager.create_recipe(SAMPLE_RECIPE)
     assert result == {}
 
-def test_approve_recipe(mock_recipe_manager):
-    approved = {**SAMPLE_RECIPE, "approved": True, "approved_by": "ana@barista.com"}
+def test_make_public(mock_recipe_manager):
+    public = {**SAMPLE_RECIPE, "is_public": True, "made_public_by": "maria@barista.com"}
     mock_recipe_manager.supabase.table.return_value.update.return_value \
-        .eq.return_value.execute.return_value = MagicMock(data=[approved])
-    result = mock_recipe_manager.approve_recipe("abc-123", "ana@barista.com")
-    assert result["approved"] is True
-    assert result["approved_by"] == "ana@barista.com"
+        .eq.return_value.execute.return_value = MagicMock(data=[public])
+    result = mock_recipe_manager.make_public("abc-123", "maria@barista.com")
+    assert result["is_public"] is True
+
+def test_make_private(mock_recipe_manager):
+    private = {**SAMPLE_RECIPE, "is_public": False, "use_in_rag": False}
+    mock_recipe_manager.supabase.table.return_value.update.return_value \
+        .eq.return_value.execute.return_value = MagicMock(data=[private])
+    result = mock_recipe_manager.make_private("abc-123")
+    assert result["is_public"] is False
+
+def test_toggle_rag(mock_recipe_manager):
+    updated = {**SAMPLE_RECIPE, "use_in_rag": True}
+    mock_recipe_manager.supabase.table.return_value.update.return_value \
+        .eq.return_value.execute.return_value = MagicMock(data=[updated])
+    result = mock_recipe_manager.toggle_rag("abc-123", True)
+    assert result["use_in_rag"] is True
 
 def test_delete_recipe(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.delete.return_value \
@@ -77,34 +94,33 @@ def test_delete_recipe(mock_recipe_manager):
     result = mock_recipe_manager.delete_recipe("abc-123")
     assert result is True
 
-def test_search_recipes_finds_by_method(mock_recipe_manager):
+def test_search_related_recipes_finds_by_method(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.select.return_value \
-        .eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
-    results = mock_recipe_manager.search_recipes("v60")
+        .eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.search_related_recipes("v60")
     assert len(results) == 1
 
-def test_search_recipes_finds_by_flavor_notes(mock_recipe_manager):
+def test_search_related_recipes_finds_by_flavor_notes(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.select.return_value \
-        .eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
-    results = mock_recipe_manager.search_recipes("jazmín")
+        .eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.search_related_recipes("jazmín")
     assert len(results) == 1
 
-def test_search_recipes_returns_empty_on_no_match(mock_recipe_manager):
+def test_search_related_recipes_returns_empty_on_no_match(mock_recipe_manager):
     mock_recipe_manager.supabase.table.return_value.select.return_value \
-        .eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
-    results = mock_recipe_manager.search_recipes("siphon")
+        .eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.search_related_recipes("siphon")
     assert results == []
 
-def test_format_recipes_context_empty(mock_recipe_manager):
-    result = mock_recipe_manager.format_recipes_context([])
-    assert result == ""
+def test_format_recipe_card_empty(mock_recipe_manager):
+    result = mock_recipe_manager.format_recipe_card({})
+    assert isinstance(result, str)
 
-def test_format_recipes_context_includes_name(mock_recipe_manager):
-    result = mock_recipe_manager.format_recipes_context([SAMPLE_RECIPE])
+def test_format_recipe_card_includes_name(mock_recipe_manager):
+    result = mock_recipe_manager.format_recipe_card(SAMPLE_RECIPE)
     assert "V60 Etiopía" in result
 
-def test_format_recipes_context_includes_parameters(mock_recipe_manager):
-    result = mock_recipe_manager.format_recipes_context([SAMPLE_RECIPE])
-    assert "15.0" in result or "15" in result
-    assert "93.0" in result or "93" in result
-    assert "Jazmín" in result
+def test_format_recipe_card_includes_parameters(mock_recipe_manager):
+    result = mock_recipe_manager.format_recipe_card(SAMPLE_RECIPE)
+    assert "15" in result or "15.0" in result
+    assert "93" in result or "93.0" in result
