@@ -259,18 +259,16 @@ def sidebar(supabase, recipe_manager):
         st.markdown("**Menú**")
         if st.button("💬  Chat", use_container_width=True, key="nav_chat"):
             st.session_state.current_page = "💬 Chat"
+            st.session_state.pop("recipes_subpage", None)
+            st.session_state.pop("calibrations_subpage", None)
             st.rerun()
-        if st.button("📋  Mis recetas", use_container_width=True, key="nav_recetas"):
-            st.session_state.current_page = "📋 Mis recetas"
+        if st.button("📋  Recetas", use_container_width=True, key="nav_recetas"):
+            st.session_state.current_page = "📋 Recetas"
+            st.session_state.pop("calibrations_subpage", None)
             st.rerun()
-        if st.button("➕  Nueva receta", use_container_width=True, key="nav_nueva"):
-            st.session_state.current_page = "➕ Nueva receta"
-            st.rerun()
-        if st.button("🎯  Nueva calibración", use_container_width=True, key="nav_calibracion"):
-            st.session_state.current_page = "🎯 Nueva calibración"
-            st.rerun()
-        if st.button("📖  Historial", use_container_width=True, key="nav_historial"):
-            st.session_state.current_page = "📖 Historial"
+        if st.button("🎯  Calibraciones", use_container_width=True, key="nav_calibraciones"):
+            st.session_state.current_page = "🎯 Calibraciones"
+            st.session_state.pop("recipes_subpage", None)
             st.rerun()
 
         st.divider()
@@ -431,9 +429,21 @@ def chat_page(agent):
         })
 
 def recipes_page(recipe_manager, user_email: str):
-    st.markdown("#### 📋 Recetas")
-    st.divider()
+    col1, col2 = st.columns([3, 1])
+    col1.markdown("#### 📋 Recetas")
+    if col2.button("➕ Nueva", use_container_width=True):
+        st.session_state.current_page = "📋 Recetas"
+        st.session_state.recipes_subpage = "nueva"
+        st.rerun()
 
+    if st.session_state.get("recipes_subpage") == "nueva":
+        if st.button("← Volver", key="back_recipes"):
+            st.session_state.pop("recipes_subpage", None)
+            st.rerun()
+        new_recipe_form(recipe_manager, user_email)
+        return
+
+    st.divider()
     tab1, tab2 = st.tabs(["Mis recetas", "Recetas públicas"])
 
     with tab1:
@@ -507,7 +517,7 @@ def _render_recipe_detail(r, recipe_manager, user_email, show_make_public=False,
                 recipe_manager.toggle_rag(r["id"], not r.get("use_in_rag", False))
                 st.rerun()
 
-def new_recipe_page(recipe_manager):
+def new_recipe_form(recipe_manager, user_email: str):
     st.markdown("#### ➕ Nueva receta")
     st.divider()
 
@@ -557,13 +567,65 @@ def new_recipe_page(recipe_manager):
                     "grind_notes": grind_notes or None,
                     "flavor_notes": flavor_notes or None,
                     "tips": tips or None,
-                    "created_by": st.session_state.user.email,
+                    "created_by": user_email,
                     "is_public": False,
                 }
                 recipe_manager.create_recipe(recipe)
-                st.success("✅ Receta guardada como privada. Podés hacerla pública desde 'Mis recetas'.")
+                st.session_state.pop("recipes_subpage", None)
+                st.rerun()
 
-def calibration_page(supabase):
+def calibrations_page(supabase):
+    col1, col2 = st.columns([3, 1])
+    col1.markdown("#### 🎯 Calibraciones")
+    if col2.button("➕ Nueva", use_container_width=True, key="btn_nueva_calibracion"):
+        st.session_state.calibrations_subpage = "nueva"
+        st.rerun()
+
+    if st.session_state.get("calibrations_subpage") == "nueva":
+        if st.button("← Volver", key="back_calibrations"):
+            st.session_state.pop("calibrations_subpage", None)
+            st.rerun()
+        _new_calibration_form(supabase)
+        return
+
+    st.divider()
+    response = supabase.table("calibrations").select("*").order("recorded_at", desc=True).limit(20).execute()
+    calibrations = response.data or []
+
+    if not calibrations:
+        st.info("Todavía no hay calibraciones guardadas.")
+        return
+
+    for c in calibrations:
+        from datetime import datetime
+        dt = datetime.fromisoformat(c["recorded_at"].replace("Z", "+00:00"))
+        label = f"{dt.strftime('%d/%m %H:%M')} — {c.get('coffee_name') or 'Sin nombre'}"
+        if c.get("approved"):
+            label = "✅ " + label
+        with st.expander(label):
+            col1, col2, col3 = st.columns(3)
+            if c.get("shift_moment"):
+                col1.write(f"**Turno:** {c['shift_moment']}")
+            if c.get("room_temp_c"):
+                col2.write(f"**Temp ambiente:** {c['room_temp_c']}°C")
+            if c.get("humidity_pct"):
+                col3.write(f"**Humedad:** {c['humidity_pct']}%")
+            if c.get("grinder_setting"):
+                col1.write(f"**Molienda:** {c['grinder_setting']}")
+            if c.get("dose_g") and c.get("yield_g"):
+                col2.write(f"**Ratio:** {c.get('ratio', '-')}")
+            if c.get("brew_time_seconds"):
+                col3.write(f"**Tiempo:** {c['brew_time_seconds']}s")
+            if c.get("extraction_balance"):
+                st.write(f"**Balance:** {c['extraction_balance']}")
+            if c.get("flavor_notes"):
+                st.caption(f"🫖 {c['flavor_notes']}")
+            if c.get("free_notes"):
+                st.info(c["free_notes"])
+            if c.get("adjustment_vs_prev"):
+                st.caption(f"🔧 {c['adjustment_vs_prev']}")
+
+def _new_calibration_form(supabase):
     st.markdown("#### 🎯 Nueva calibración")
     st.caption("Completá lo que tengas disponible — ningún campo es obligatorio")
     st.divider()
@@ -674,47 +736,8 @@ def calibration_page(supabase):
                 "created_by": st.session_state.user.email,
             }
             supabase.table("calibrations").insert(data).execute()
-            st.success("✅ Calibración guardada.")
-
-def calibrations_history_page(supabase):
-    st.markdown("#### 📖 Historial de calibraciones")
-    st.divider()
-
-    response = supabase.table("calibrations").select("*").order("recorded_at", desc=True).limit(20).execute()
-    calibrations = response.data or []
-
-    if not calibrations:
-        st.info("Todavía no hay calibraciones guardadas.")
-        return
-
-    for c in calibrations:
-        from datetime import datetime
-        dt = datetime.fromisoformat(c["recorded_at"].replace("Z", "+00:00"))
-        label = f"{dt.strftime('%d/%m %H:%M')} — {c.get('coffee_name') or 'Sin nombre'}"
-        if c.get("approved"):
-            label = "✅ " + label
-        with st.expander(label):
-            col1, col2, col3 = st.columns(3)
-            if c.get("shift_moment"):
-                col1.write(f"**Turno:** {c['shift_moment']}")
-            if c.get("room_temp_c"):
-                col2.write(f"**Temp ambiente:** {c['room_temp_c']}°C")
-            if c.get("humidity_pct"):
-                col3.write(f"**Humedad:** {c['humidity_pct']}%")
-            if c.get("grinder_setting"):
-                col1.write(f"**Molienda:** {c['grinder_setting']}")
-            if c.get("dose_g") and c.get("yield_g"):
-                col2.write(f"**Ratio:** {c.get('ratio', '-')}")
-            if c.get("brew_time_seconds"):
-                col3.write(f"**Tiempo:** {c['brew_time_seconds']}s")
-            if c.get("extraction_balance"):
-                st.write(f"**Balance:** {c['extraction_balance']}")
-            if c.get("flavor_notes"):
-                st.caption(f"🫖 {c['flavor_notes']}")
-            if c.get("free_notes"):
-                st.info(c["free_notes"])
-            if c.get("adjustment_vs_prev"):
-                st.caption(f"🔧 {c['adjustment_vs_prev']}")
+            st.session_state.pop("calibrations_subpage", None)
+            st.rerun()
 
 def main():
     Config.validate()
@@ -736,14 +759,10 @@ def main():
 
     if page == "💬 Chat":
         chat_page(agent)
-    elif page == "📋 Mis recetas":
+    elif page == "📋 Recetas":
         recipes_page(recipe_manager, st.session_state.user.email)
-    elif page == "➕ Nueva receta":
-        new_recipe_page(recipe_manager)
-    elif page == "🎯 Nueva calibración":
-        calibration_page(supabase)
-    elif page == "📖 Historial":
-        calibrations_history_page(supabase)
+    elif page == "🎯 Calibraciones":
+        calibrations_page(supabase)
 
 if __name__ == "__main__":
     main()
