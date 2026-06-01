@@ -611,8 +611,8 @@ def calibrations_page(supabase):
 
     for c in calibrations:
         from datetime import datetime
-        dt = datetime.fromisoformat(c["recorded_at"].replace("Z", "+00:00"))
-        label = f"{dt.strftime('%d/%m %H:%M')} — {c.get('coffee_name') or 'Sin nombre'}"
+        dt_utc = datetime.fromisoformat(c["recorded_at"].replace("Z", "+00:00"))
+        label = f"{dt_utc.strftime('%d/%m/%Y')} — {c.get('coffee_name') or 'Sin nombre'}"
         if c.get("approved"):
             label = "✅ " + label
         with st.expander(label):
