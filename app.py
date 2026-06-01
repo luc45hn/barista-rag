@@ -58,17 +58,23 @@ st.markdown("""
     }
     [data-testid="stSidebar"] .stRadio label { color: #F0E0C8 !important; }
 
-    /* Chat messages */
-    [data-testid="stChatMessage"] {
+    /* Mensaje del agente — fondo blanco */
+    [data-testid="stChatMessageContent"][aria-label="Chat message from assistant"] {
         background-color: #FFFFFF;
         border: 1px solid rgba(107,58,42,0.1);
         border-radius: 16px;
         padding: 12px 16px;
     }
-    [data-testid="stChatMessage"] p {
-        color: #2C1810 !important;
-        font-size: 15px !important;
-        line-height: 1.6 !important;
+
+    /* Mensaje del usuario — fondo marrón */
+    [data-testid="stChatMessageContent"][aria-label="Chat message from user"] {
+        background-color: #6B3A2A !important;
+        border: none !important;
+        border-radius: 16px;
+        padding: 12px 16px;
+    }
+    [data-testid="stChatMessageContent"][aria-label="Chat message from user"] p {
+        color: #F5ECD7 !important;
     }
 
     /* Input de chat */
@@ -210,6 +216,7 @@ span[data-testid="stIconMaterial"][color] {
     color: #F0E0C8 !important;
     -webkit-text-fill-color: #F0E0C8 !important;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -347,18 +354,32 @@ def chat_page(agent):
                 if msg.get("related_recipes"):
                     st.markdown("**Recetas relacionadas:**")
                     for recipe in msg["related_recipes"]:
-                        recipe_id = recipe.get("id")
                         recipe_name = recipe.get("name")
                         recipe_author = recipe.get("created_by", "").split("@")[0]
-                        if st.button(
-                            f"📋 {recipe_name} (por {recipe_author})",
-                            key=f"recipe_btn_{recipe_id}_{msg.get('content', '')[:20]}",
-                            use_container_width=False
-                        ):
-                            st.session_state.selected_recipe_id = recipe_id
-                            st.session_state.selected_recipe_tab = "Mis recetas" if recipe.get("created_by") == st.session_state.user.email else "Recetas públicas"
-                            st.session_state.current_page = "📋 Mis recetas"
-                            st.rerun()
+                        with st.expander(f"📋 {recipe_name} · por {recipe_author}"):
+                            col1, col2 = st.columns(2)
+                            if recipe.get("coffee_bean"):
+                                col1.metric("Café", recipe['coffee_bean'])
+                            if recipe.get("grind_notes"):
+                                col2.metric("Molienda", recipe['grind_notes'])
+                            if recipe.get("dose_g"):
+                                col1.metric("Dosis", f"{recipe['dose_g']}g")
+                            if recipe.get("water_g"):
+                                col2.metric("Agua", f"{recipe['water_g']}g")
+                            if recipe.get("water_temp_c"):
+                                col1.metric("Temp.", f"{recipe['water_temp_c']}°C")
+                            if recipe.get("brew_time_seconds"):
+                                mins = recipe["brew_time_seconds"] // 60
+                                secs = recipe["brew_time_seconds"] % 60
+                                col2.metric("Tiempo", f"{mins}:{secs:02d}")
+                            if recipe.get("yield_g"):
+                                col1.metric("Rendimiento", f"{recipe['yield_g']}g")
+                            if recipe.get("ratio"):
+                                col2.metric("Ratio", recipe['ratio'])
+                            if recipe.get("flavor_notes"):
+                                st.caption(f"🫖 {recipe['flavor_notes']}")
+                            if recipe.get("tips"):
+                                st.info(recipe["tips"])
 
     if prompt := st.chat_input("Preguntá algo..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -376,18 +397,32 @@ def chat_page(agent):
             if related_recipes:
                 st.markdown("**Recetas relacionadas:**")
                 for recipe in related_recipes:
-                    recipe_id = recipe.get("id")
                     recipe_name = recipe.get("name")
                     recipe_author = recipe.get("created_by", "").split("@")[0]
-                    if st.button(
-                        f"📋 {recipe_name} (por {recipe_author})",
-                        key=f"recipe_btn_live_{recipe_id}",
-                        use_container_width=False
-                    ):
-                        st.session_state.selected_recipe_id = recipe_id
-                        st.session_state.selected_recipe_tab = "Mis recetas" if recipe.get("created_by") == st.session_state.user.email else "Recetas públicas"
-                        st.session_state.current_page = "📋 Mis recetas"
-                        st.rerun()
+                    with st.expander(f"📋 {recipe_name} · por {recipe_author}"):
+                        col1, col2 = st.columns(2)
+                        if recipe.get("coffee_bean"):
+                            col1.metric("Café", recipe['coffee_bean'])
+                        if recipe.get("grind_notes"):
+                            col2.metric("Molienda", recipe['grind_notes'])
+                        if recipe.get("dose_g"):
+                            col1.metric("Dosis", f"{recipe['dose_g']}g")
+                        if recipe.get("water_g"):
+                            col2.metric("Agua", f"{recipe['water_g']}g")
+                        if recipe.get("water_temp_c"):
+                            col1.metric("Temp.", f"{recipe['water_temp_c']}°C")
+                        if recipe.get("brew_time_seconds"):
+                            mins = recipe["brew_time_seconds"] // 60
+                            secs = recipe["brew_time_seconds"] % 60
+                            col2.metric("Tiempo", f"{mins}:{secs:02d}")
+                        if recipe.get("yield_g"):
+                            col1.metric("Rendimiento", f"{recipe['yield_g']}g")
+                        if recipe.get("ratio"):
+                            col2.metric("Ratio", recipe['ratio'])
+                        if recipe.get("flavor_notes"):
+                            st.caption(f"🫖 {recipe['flavor_notes']}")
+                        if recipe.get("tips"):
+                            st.info(recipe["tips"])
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
@@ -399,8 +434,6 @@ def recipes_page(recipe_manager, user_email: str):
     st.markdown("#### 📋 Recetas")
     st.divider()
 
-    default_tab = 0 if st.session_state.get("selected_recipe_tab", "Mis recetas") == "Mis recetas" else 1
-    st.session_state.pop("selected_recipe_tab", None)
     tab1, tab2 = st.tabs(["Mis recetas", "Recetas públicas"])
 
     with tab1:
@@ -435,18 +468,25 @@ def recipes_page(recipe_manager, user_email: str):
             st.info("Todavía no hay recetas públicas de otros usuarios.")
 
 def _render_recipe_detail(r, recipe_manager, user_email, show_make_public=False, show_make_private=False):
-    selected = st.session_state.get("selected_recipe_id") == r.get("id")
-    if selected:
-        st.session_state.selected_recipe_id = None
-
     col1, col2 = st.columns(2)
-    col1.metric("Dosis", f"{r.get('dose_g', '-')}g")
-    col2.metric("Agua", f"{r.get('water_g', '-')}g")
-    col1.metric("Temp.", f"{r.get('water_temp_c', '-')}°C")
+    if r.get("coffee_bean"):
+        col1.metric("Café", r['coffee_bean'])
+    if r.get("grind_notes"):
+        col2.metric("Molienda", r['grind_notes'])
+    if r.get("dose_g"):
+        col1.metric("Dosis", f"{r['dose_g']}g")
+    if r.get("water_g"):
+        col2.metric("Agua", f"{r['water_g']}g")
+    if r.get("water_temp_c"):
+        col1.metric("Temp.", f"{r['water_temp_c']}°C")
     if r.get("brew_time_seconds"):
         mins = r["brew_time_seconds"] // 60
         secs = r["brew_time_seconds"] % 60
         col2.metric("Tiempo", f"{mins}:{secs:02d}")
+    if r.get("yield_g"):
+        col1.metric("Rendimiento", f"{r['yield_g']}g")
+    if r.get("ratio"):
+        col2.metric("Ratio", r['ratio'])
     if r.get("flavor_notes"):
         st.caption(f"🫖 {r['flavor_notes']}")
     if r.get("tips"):
