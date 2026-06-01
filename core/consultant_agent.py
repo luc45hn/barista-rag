@@ -18,14 +18,13 @@ Tu conocimiento incluye:
 - Técnicas de vaporizado y latte art
 - Resolución de problemas y defectos
 
-Cuando respondas:
+Cuando respondás:
 - Usá un tono cálido y didáctico, como un mentor barista
 - Sé preciso con los parámetros técnicos (temperatura, ratio, tiempo)
-- Si tenés recetas propias del café, priorizalas sobre el conocimiento genérico
-- Citá las fuentes cuando uses información de los documentos
+- Respondé con conocimiento técnico claro y conciso
+- NO incluyas recetas de usuarios en tu respuesta — esas se mostrarán por separado
 - Si no sabés algo, decilo honestamente
-- Respondé siempre en español
-- Mantené las respuestas concisas pero completas"""
+- Respondé siempre en español"""
 
 INTENT_KEYWORDS = {
     "recipe": ["receta", "cómo preparo", "cómo hago", "parámetros", "ratio",
@@ -54,28 +53,17 @@ class ConsultantAgent:
     def __init__(self):
         self.document_manager = DocumentManager()
         self.recipe_manager = RecipeManager()
-        self.genai_client = genai.Client(
-            api_key=Config.GOOGLE_API_KEY,
-        )
         self.groq_client = Groq(api_key=Config.GROQ_API_KEY)
+        self.genai_client = genai.Client(api_key=Config.GOOGLE_API_KEY)
         self.supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
 
-    def build_context(self, query: str) -> tuple[str, list[str], list[str], list[dict], list[dict]]:
+    def build_context(self, query: str) -> tuple[str, list[str], list[str], list[dict]]:
         intents = detect_intent(query)
         logger.info(f"Intents detectados: {intents}")
 
         context_parts = []
         sources = []
 
-        # Buscar recetas propias primero
-        own_recipes = self.recipe_manager.search_recipes(query)
-        if own_recipes:
-            recipes_context = self.recipe_manager.format_recipes_context(own_recipes)
-            context_parts.append(f"RECETAS PROPIAS DEL CAFÉ:\n{recipes_context}")
-            sources.append("Recetas propias")
-            logger.info(f"Recetas propias encontradas: {len(own_recipes)}")
-
-        # Buscar en documentos del knowledge base
         doc_results = self.document_manager.search(query, top_k=Config.TOP_K_RESULTS)
         if doc_results:
             docs_context = self.document_manager.format_context(doc_results)
@@ -85,13 +73,16 @@ class ConsultantAgent:
                 if source and source not in sources:
                     sources.append(source)
 
-        return "\n\n".join(context_parts), sources, intents, own_recipes, doc_results
+        related_recipes = self.recipe_manager.search_related_recipes(query)
+        logger.info(f"Recetas relacionadas encontradas: {len(related_recipes)}")
 
-    def chat(self, query: str, history: list[dict] = None, user_email: str = "") -> tuple[str, list[str]]:
+        return "\n\n".join(context_parts), sources, intents, related_recipes
+
+    def chat(self, query: str, history: list[dict] = None, user_email: str = "") -> tuple[str, list[str], list[dict]]:
         history = history or []
         logger.info(f"Query: '{query[:80]}'")
 
-        context, sources, intents, own_recipes, doc_results = self.build_context(query)
+        context, sources, intents, related_recipes = self.build_context(query)
 
         user_message = query
         if context:
@@ -114,7 +105,8 @@ Pregunta: {query}"""
             temperature=Config.TEMPERATURE,
             max_tokens=Config.MAX_TOKENS,
         )
-        answer = response.choices[0].message.content
+
+        answer = response.text if hasattr(response, 'text') else response.choices[0].message.content
         logger.info(f"Respuesta generada ({len(answer)} chars)")
 
         try:
@@ -122,10 +114,10 @@ Pregunta: {query}"""
                 "user_email": user_email,
                 "query": query,
                 "intents": intents,
-                "chunks_found": len(doc_results),
-                "had_own_recipes": len(own_recipes) > 0,
+                "chunks_found": len(sources),
+                "had_own_recipes": len(related_recipes) > 0,
             }).execute()
         except Exception as e:
             logger.warning(f"No se pudo guardar el log: {e}")
 
-        return answer, sources
+        return answer, sources, related_recipes

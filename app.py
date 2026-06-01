@@ -306,11 +306,12 @@ def chat_page(agent):
         quick = st.session_state.pop("quick_query")
         st.session_state.messages.append({"role": "user", "content": quick})
         with st.spinner(""):
-            answer, sources = agent.chat(quick, st.session_state.messages[:-1], user_email=st.session_state.user.email)
+            answer, sources, related_recipes = agent.chat(quick, st.session_state.messages[:-1], user_email=st.session_state.user.email)
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
-            "sources": sources
+            "sources": sources,
+            "related_recipes": related_recipes
         })
 
     if not st.session_state.messages:
@@ -343,6 +344,21 @@ def chat_page(agent):
                         f'<div class="source-badge">📚 {format_sources(msg["sources"])}</div>',
                         unsafe_allow_html=True
                     )
+                if msg.get("related_recipes"):
+                    st.markdown("**Recetas relacionadas:**")
+                    for recipe in msg["related_recipes"]:
+                        recipe_id = recipe.get("id")
+                        recipe_name = recipe.get("name")
+                        recipe_author = recipe.get("created_by", "").split("@")[0]
+                        if st.button(
+                            f"📋 {recipe_name} (por {recipe_author})",
+                            key=f"recipe_btn_{recipe_id}_{msg.get('content', '')[:20]}",
+                            use_container_width=False
+                        ):
+                            st.session_state.selected_recipe_id = recipe_id
+                            st.session_state.selected_recipe_tab = "Mis recetas" if recipe.get("created_by") == st.session_state.user.email else "Recetas públicas"
+                            st.session_state.current_page = "📋 Mis recetas"
+                            st.rerun()
 
     if prompt := st.chat_input("Preguntá algo..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -350,63 +366,106 @@ def chat_page(agent):
             st.write(prompt)
         with st.chat_message("assistant", avatar="☕"):
             with st.spinner(""):
-                answer, sources = agent.chat(prompt, st.session_state.messages[:-1], user_email=st.session_state.user.email)
+                answer, sources, related_recipes = agent.chat(prompt, st.session_state.messages[:-1], user_email=st.session_state.user.email)
             st.write(answer)
             if sources:
                 st.markdown(
                     f'<div class="source-badge">📚 {format_sources(sources)}</div>',
                     unsafe_allow_html=True
                 )
+            if related_recipes:
+                st.markdown("**Recetas relacionadas:**")
+                for recipe in related_recipes:
+                    recipe_id = recipe.get("id")
+                    recipe_name = recipe.get("name")
+                    recipe_author = recipe.get("created_by", "").split("@")[0]
+                    if st.button(
+                        f"📋 {recipe_name} (por {recipe_author})",
+                        key=f"recipe_btn_live_{recipe_id}",
+                        use_container_width=False
+                    ):
+                        st.session_state.selected_recipe_id = recipe_id
+                        st.session_state.selected_recipe_tab = "Mis recetas" if recipe.get("created_by") == st.session_state.user.email else "Recetas públicas"
+                        st.session_state.current_page = "📋 Mis recetas"
+                        st.rerun()
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
-            "sources": sources
+            "sources": sources,
+            "related_recipes": related_recipes
         })
 
-def recipes_page(recipe_manager):
-    st.markdown("#### 📋 Mis recetas")
+def recipes_page(recipe_manager, user_email: str):
+    st.markdown("#### 📋 Recetas")
     st.divider()
 
-    approved = recipe_manager.get_approved_recipes()
-    pending = recipe_manager.get_pending_recipes(
-        created_by=st.session_state.user.email
-    )
+    default_tab = 0 if st.session_state.get("selected_recipe_tab", "Mis recetas") == "Mis recetas" else 1
+    st.session_state.pop("selected_recipe_tab", None)
+    tab1, tab2 = st.tabs(["Mis recetas", "Recetas públicas"])
 
-    if pending:
-        st.markdown("**⏳ Pendientes de aprobación**")
-        for r in pending:
-            with st.expander(f"{r['name']}"):
-                st.write(f"**Método:** {r.get('method', '-')}")
-                st.write(f"**Café:** {r.get('coffee_bean', '-')}")
-                col1, col2 = st.columns(2)
-                col1.write(f"**Dosis:** {r.get('dose_g', '-')}g")
-                col2.write(f"**Agua:** {r.get('water_g', '-')}g")
-                col1.write(f"**Temperatura:** {r.get('water_temp_c', '-')}°C")
-                if r.get("flavor_notes"):
-                    st.caption(f"🫖 {r['flavor_notes']}")
-                if st.button("✓ Aprobar receta", key=f"approve_{r['id']}", use_container_width=True):
-                    recipe_manager.approve_recipe(r["id"], st.session_state.user.email)
-                    st.rerun()
+    with tab1:
+        my_recipes = recipe_manager.get_my_recipes(user_email)
+        private = [r for r in my_recipes if not r.get("is_public")]
+        public_mine = [r for r in my_recipes if r.get("is_public")]
 
-    if approved:
-        st.markdown("**✅ Recetas aprobadas**")
-        for r in approved:
-            with st.expander(f"{r['name']}"):
-                col1, col2 = st.columns(2)
-                col1.metric("Dosis", f"{r.get('dose_g', '-')}g")
-                col2.metric("Agua", f"{r.get('water_g', '-')}g")
-                col1.metric("Temp.", f"{r.get('water_temp_c', '-')}°C")
-                if r.get("brew_time_seconds"):
-                    mins = r["brew_time_seconds"] // 60
-                    secs = r["brew_time_seconds"] % 60
-                    col2.metric("Tiempo", f"{mins}:{secs:02d}")
-                if r.get("flavor_notes"):
-                    st.caption(f"🫖 {r['flavor_notes']}")
-                if r.get("tips"):
-                    st.info(r["tips"])
+        if private:
+            st.markdown("**🔒 Privadas**")
+            for r in private:
+                with st.expander(r["name"]):
+                    _render_recipe_detail(r, recipe_manager, user_email, show_make_public=True)
 
-    if not approved and not pending:
-        st.info("Todavía no hay recetas. ¡Agregá la primera desde el menú!")
+        if public_mine:
+            st.markdown("**🌐 Públicas**")
+            for r in public_mine:
+                with st.expander(r["name"]):
+                    _render_recipe_detail(r, recipe_manager, user_email, show_make_private=True)
+
+        if not my_recipes:
+            st.info("Todavía no tenés recetas. ¡Agregá la primera desde el menú!")
+
+    with tab2:
+        public_recipes = recipe_manager.get_public_recipes()
+        others = [r for r in public_recipes if r.get("created_by") != user_email]
+
+        if others:
+            for r in others:
+                with st.expander(f"{r['name']} · por {r.get('created_by','').split('@')[0]}"):
+                    _render_recipe_detail(r, recipe_manager, user_email)
+        else:
+            st.info("Todavía no hay recetas públicas de otros usuarios.")
+
+def _render_recipe_detail(r, recipe_manager, user_email, show_make_public=False, show_make_private=False):
+    selected = st.session_state.get("selected_recipe_id") == r.get("id")
+    if selected:
+        st.session_state.selected_recipe_id = None
+
+    col1, col2 = st.columns(2)
+    col1.metric("Dosis", f"{r.get('dose_g', '-')}g")
+    col2.metric("Agua", f"{r.get('water_g', '-')}g")
+    col1.metric("Temp.", f"{r.get('water_temp_c', '-')}°C")
+    if r.get("brew_time_seconds"):
+        mins = r["brew_time_seconds"] // 60
+        secs = r["brew_time_seconds"] % 60
+        col2.metric("Tiempo", f"{mins}:{secs:02d}")
+    if r.get("flavor_notes"):
+        st.caption(f"🫖 {r['flavor_notes']}")
+    if r.get("tips"):
+        st.info(r["tips"])
+
+    if r.get("created_by") == user_email:
+        if show_make_public:
+            if st.button("🌐 Hacer pública", key=f"pub_{r['id']}", use_container_width=True):
+                recipe_manager.make_public(r["id"], user_email)
+                st.rerun()
+        if show_make_private:
+            col1, col2 = st.columns(2)
+            if col1.button("🔒 Hacer privada", key=f"priv_{r['id']}", use_container_width=True):
+                recipe_manager.make_private(r["id"])
+                st.rerun()
+            rag_label = "✅ En base de conocimiento" if r.get("use_in_rag") else "📚 Agregar a base de conocimiento"
+            if col2.button(rag_label, key=f"rag_{r['id']}", use_container_width=True):
+                recipe_manager.toggle_rag(r["id"], not r.get("use_in_rag", False))
+                st.rerun()
 
 def new_recipe_page(recipe_manager):
     st.markdown("#### ➕ Nueva receta")
@@ -459,10 +518,10 @@ def new_recipe_page(recipe_manager):
                     "flavor_notes": flavor_notes or None,
                     "tips": tips or None,
                     "created_by": st.session_state.user.email,
-                    "approved": False,
+                    "is_public": False,
                 }
                 recipe_manager.create_recipe(recipe)
-                st.success("✅ Receta guardada. Queda pendiente de aprobación.")
+                st.success("✅ Receta guardada como privada. Podés hacerla pública desde 'Mis recetas'.")
 
 def calibration_page(supabase):
     st.markdown("#### 🎯 Nueva calibración")
@@ -638,7 +697,7 @@ def main():
     if page == "💬 Chat":
         chat_page(agent)
     elif page == "📋 Mis recetas":
-        recipes_page(recipe_manager)
+        recipes_page(recipe_manager, st.session_state.user.email)
     elif page == "➕ Nueva receta":
         new_recipe_page(recipe_manager)
     elif page == "🎯 Nueva calibración":
