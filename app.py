@@ -315,11 +315,48 @@ def sidebar(supabase, recipe_manager):
 
     return st.session_state.get("current_page", "💬 Chat")
 
-def chat_page(agent):
-    user_name = st.session_state.user.email.split("@")[0].capitalize()
+def load_messages_from_db(supabase, user_email: str) -> list[dict]:
+    try:
+        response = supabase.table("messages") \
+            .select("role, content, sources, related_recipes") \
+            .eq("user_email", user_email) \
+            .order("created_at", desc=False) \
+            .limit(50) \
+            .execute()
+        messages = []
+        for row in response.data or []:
+            msg = {
+                "role": row["role"],
+                "content": row["content"],
+                "sources": row.get("sources") or [],
+                "related_recipes": row.get("related_recipes") or [],
+            }
+            messages.append(msg)
+        return messages
+    except Exception as e:
+        logger.warning(f"No se pudo cargar el historial: {e}")
+        return []
+
+def save_message_to_db(supabase, user_email: str, cafe_id: str, role: str, content: str, sources: list = None, related_recipes: list = None):
+    try:
+        supabase.table("messages").insert({
+            "user_email": user_email,
+            "cafe_id": cafe_id or None,
+            "role": role,
+            "content": content,
+            "sources": sources or [],
+            "related_recipes": related_recipes or [],
+        }).execute()
+    except Exception as e:
+        logger.warning(f"No se pudo guardar el mensaje: {e}")
+
+def chat_page(agent, supabase):
+    user_email = st.session_state.user.email
+    cafe_id = st.session_state.get("cafe_id", "")
+    user_name = user_email.split("@")[0].capitalize()
 
     if "messages" not in st.session_state:
-        st.session_state.messages = []
+        st.session_state.messages = load_messages_from_db(supabase, user_email)
 
     if "quick_query" in st.session_state:
         quick = st.session_state.pop("quick_query")
@@ -327,8 +364,8 @@ def chat_page(agent):
         with st.spinner(""):
             answer, sources, related_recipes = agent.chat(
                 quick, [],
-                user_email=st.session_state.user.email,
-                cafe_id=st.session_state.get("cafe_id", "")
+                user_email=user_email,
+                cafe_id=cafe_id
             )
         st.session_state.messages.append({
             "role": "assistant",
@@ -336,6 +373,8 @@ def chat_page(agent):
             "sources": sources,
             "related_recipes": related_recipes
         })
+        save_message_to_db(supabase, user_email, cafe_id, "user", quick)
+        save_message_to_db(supabase, user_email, cafe_id, "assistant", answer, sources, related_recipes)
 
     if not st.session_state.messages:
         st.markdown(f"#### Hola {user_name} 👋")
@@ -405,8 +444,8 @@ def chat_page(agent):
             with st.spinner(""):
                 answer, sources, related_recipes = agent.chat(
                     prompt, st.session_state.messages[:-1],
-                    user_email=st.session_state.user.email,
-                    cafe_id=st.session_state.get("cafe_id", "")
+                    user_email=user_email,
+                    cafe_id=cafe_id
                 )
             st.write(answer)
             if sources:
@@ -449,6 +488,8 @@ def chat_page(agent):
             "sources": sources,
             "related_recipes": related_recipes
         })
+        save_message_to_db(supabase, user_email, cafe_id, "user", prompt)
+        save_message_to_db(supabase, user_email, cafe_id, "assistant", answer, sources, related_recipes)
 
 def recipes_page(recipe_manager, user_email: str, cafe_id: str = ""):
     col1, col2 = st.columns([3, 1])
@@ -785,7 +826,7 @@ def main():
     page = sidebar(supabase, recipe_manager)
 
     if page == "💬 Chat":
-        chat_page(agent)
+        chat_page(agent, supabase)
     elif page == "📋 Recetas":
         recipes_page(recipe_manager, st.session_state.user.email, st.session_state.get("cafe_id", ""))
     elif page == "🎯 Calibraciones":
