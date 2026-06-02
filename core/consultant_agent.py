@@ -57,7 +57,7 @@ class ConsultantAgent:
         self.genai_client = genai.Client(api_key=Config.GOOGLE_API_KEY)
         self.supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
 
-    def build_context(self, query: str) -> tuple[str, list[str], list[str], list[dict]]:
+    def build_context(self, query: str, cafe_id: str = "") -> tuple[str, list[str], list[str], list[dict]]:
         intents = detect_intent(query)
         logger.info(f"Intents detectados: {intents}")
 
@@ -73,16 +73,15 @@ class ConsultantAgent:
                 if source and source not in sources:
                     sources.append(source)
 
-        related_recipes = self.recipe_manager.search_related_recipes(query)
-        logger.info(f"Recetas relacionadas encontradas: {len(related_recipes)}")
+        related_recipes = self.recipe_manager.search_related_recipes(query, cafe_id=cafe_id)
 
         return "\n\n".join(context_parts), sources, intents, related_recipes
 
-    def chat(self, query: str, history: list[dict] = None, user_email: str = "") -> tuple[str, list[str], list[dict]]:
+    def chat(self, query: str, history: list[dict] = None, user_email: str = "", cafe_id: str = "") -> tuple[str, list[str], list[dict]]:
         history = history or []
         logger.info(f"Query: '{query[:80]}'")
 
-        context, sources, intents, related_recipes = self.build_context(query)
+        context, sources, intents, related_recipes = self.build_context(query, cafe_id=cafe_id)
 
         user_message = query
         if context:

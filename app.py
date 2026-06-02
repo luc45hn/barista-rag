@@ -243,6 +243,7 @@ def login_page(supabase):
                 })
                 st.session_state.user = response.user
                 st.session_state.session = response.session
+                st.session_state.cafe_id = response.user.user_metadata.get("cafe_id", "")
                 st.rerun()
             except Exception:
                 st.error("Email o contraseña incorrectos")
@@ -324,7 +325,11 @@ def chat_page(agent):
         quick = st.session_state.pop("quick_query")
         st.session_state.messages.append({"role": "user", "content": quick})
         with st.spinner(""):
-            answer, sources, related_recipes = agent.chat(quick, st.session_state.messages[:-1], user_email=st.session_state.user.email)
+            answer, sources, related_recipes = agent.chat(
+                quick, [],
+                user_email=st.session_state.user.email,
+                cafe_id=st.session_state.get("cafe_id", "")
+            )
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
@@ -398,7 +403,11 @@ def chat_page(agent):
             st.write(prompt)
         with st.chat_message("assistant", avatar="☕"):
             with st.spinner(""):
-                answer, sources, related_recipes = agent.chat(prompt, st.session_state.messages[:-1], user_email=st.session_state.user.email)
+                answer, sources, related_recipes = agent.chat(
+                    prompt, st.session_state.messages[:-1],
+                    user_email=st.session_state.user.email,
+                    cafe_id=st.session_state.get("cafe_id", "")
+                )
             st.write(answer)
             if sources:
                 st.markdown(
@@ -441,7 +450,7 @@ def chat_page(agent):
             "related_recipes": related_recipes
         })
 
-def recipes_page(recipe_manager, user_email: str):
+def recipes_page(recipe_manager, user_email: str, cafe_id: str = ""):
     col1, col2 = st.columns([3, 1])
     col1.markdown("#### 📋 Recetas")
     if col2.button("➕ Nueva", use_container_width=True):
@@ -480,7 +489,7 @@ def recipes_page(recipe_manager, user_email: str):
             st.info("Todavía no tenés recetas. ¡Agregá la primera desde el menú!")
 
     with tab2:
-        public_recipes = recipe_manager.get_public_recipes()
+        public_recipes = recipe_manager.get_public_recipes(cafe_id=cafe_id)
         others = [r for r in public_recipes if r.get("created_by") != user_email]
 
         if others:
@@ -582,6 +591,7 @@ def new_recipe_form(recipe_manager, user_email: str):
                     "tips": tips or None,
                     "created_by": user_email,
                     "is_public": False,
+                    "cafe_id": st.session_state.get("cafe_id") or None,
                 }
                 recipe_manager.create_recipe(recipe)
                 st.session_state.pop("recipes_subpage", None)
@@ -747,6 +757,7 @@ def _new_calibration_form(supabase):
                 "adjustment_vs_prev": adjustment_vs_prev or None,
                 "free_notes": free_notes or None,
                 "created_by": st.session_state.user.email,
+                "cafe_id": st.session_state.get("cafe_id") or None,
             }
             supabase.table("calibrations").insert(data).execute()
             st.session_state.pop("calibrations_subpage", None)
@@ -763,6 +774,9 @@ def main():
     token = st.session_state.session.access_token
     supabase.postgrest.auth(token)
 
+    if "cafe_id" not in st.session_state:
+        st.session_state.cafe_id = st.session_state.user.user_metadata.get("cafe_id", "")
+
     recipe_manager = RecipeManager()
     recipe_manager.supabase.postgrest.auth(token)
 
@@ -773,7 +787,7 @@ def main():
     if page == "💬 Chat":
         chat_page(agent)
     elif page == "📋 Recetas":
-        recipes_page(recipe_manager, st.session_state.user.email)
+        recipes_page(recipe_manager, st.session_state.user.email, st.session_state.get("cafe_id", ""))
     elif page == "🎯 Calibraciones":
         calibrations_page(supabase)
 

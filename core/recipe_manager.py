@@ -15,18 +15,22 @@ class RecipeManager:
             .order("created_at", desc=True).execute()
         return response.data or []
 
-    def get_public_recipes(self, method: str = None) -> list[dict]:
+    def get_public_recipes(self, cafe_id: str = None, method: str = None) -> list[dict]:
         query = self.supabase.table("recipes").select("*").eq("is_public", True)
+        if cafe_id:
+            query = query.eq("cafe_id", cafe_id)
         if method:
             query = query.eq("method", method)
         response = query.order("created_at", desc=True).execute()
         return response.data or []
 
-    def get_rag_recipes(self) -> list[dict]:
-        response = self.supabase.table("recipes").select("*") \
+    def get_rag_recipes(self, cafe_id: str = None) -> list[dict]:
+        query = self.supabase.table("recipes").select("*") \
             .eq("is_public", True) \
-            .eq("use_in_rag", True) \
-            .order("created_at", desc=True).execute()
+            .eq("use_in_rag", True)
+        if cafe_id:
+            query = query.eq("cafe_id", cafe_id)
+        response = query.order("created_at", desc=True).execute()
         return response.data or []
 
     def create_recipe(self, recipe: dict) -> dict:
@@ -63,8 +67,8 @@ class RecipeManager:
         logger.info(f"Receta {recipe_id} eliminada")
         return True
 
-    def search_related_recipes(self, query: str) -> list[dict]:
-        recipes = self.get_rag_recipes()
+    def search_related_recipes(self, query: str, cafe_id: str = None) -> list[dict]:
+        recipes = self.get_rag_recipes(cafe_id=cafe_id)
         logger.info(f"search_related_recipes — query: '{query}' | recetas RAG disponibles: {len(recipes)}")
         query_lower = query.lower()
         relevant = []
@@ -78,7 +82,7 @@ class RecipeManager:
             words = [re.sub(r'[^\w]', '', w) for w in query_lower.split() if len(w) > 2]
             words = [w for w in words if w]
             matches = [w for w in words if w in searchable]
-            logger.info(f"  Receta: '{recipe.get('name')}' | searchable: '{searchable}' | words: {words} | matches: {matches}")
+            logger.info(f"  Receta: '{recipe.get('name')}' | words: {words} | matches: {matches}")
             if any(word in searchable for word in words):
                 relevant.append(recipe)
         return relevant
