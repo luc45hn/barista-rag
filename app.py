@@ -244,6 +244,14 @@ def login_page(supabase):
                 st.session_state.user = response.user
                 st.session_state.session = response.session
                 st.session_state.cafe_id = response.user.user_metadata.get("cafe_id", "")
+                if st.session_state.cafe_id:
+                    try:
+                        cafe_resp = supabase.table("cafes").select("name").eq("id", st.session_state.cafe_id).single().execute()
+                        st.session_state.cafe_name = cafe_resp.data.get("name", "") if cafe_resp.data else ""
+                    except:
+                        st.session_state.cafe_name = ""
+                else:
+                    st.session_state.cafe_name = ""
                 st.rerun()
             except Exception:
                 st.error("Email o contraseña incorrectos")
@@ -254,6 +262,7 @@ def sidebar(supabase, recipe_manager):
         user_name = user_email.split("@")[0].capitalize()
 
         user_initials = user_name[:2].upper()
+        cafe_name = st.session_state.get("cafe_name", "")
         st.markdown(f"""
 <div style="padding: 4px 0 16px 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 16px;">
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
@@ -265,7 +274,10 @@ def sidebar(supabase, recipe_manager):
     </div>
     <div style="background:rgba(255,255,255,0.07); border-radius:10px; padding:10px 12px; display:flex; align-items:center; gap:10px;">
         <div style="width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,#C4956A,#8B5E3C); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; color:#F5ECD7; flex-shrink:0;">{user_initials}</div>
-        <div style="font-size:14px; font-weight:500; color:#F0E0C8;">{user_name}</div>
+        <div>
+            <div style="font-size:14px; font-weight:500; color:#F0E0C8;">{user_name}</div>
+            {f'<div style="font-size:11px; color:#A07860;">☕ {cafe_name}</div>' if cafe_name else ''}
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -817,6 +829,16 @@ def main():
 
     if "cafe_id" not in st.session_state:
         st.session_state.cafe_id = st.session_state.user.user_metadata.get("cafe_id", "")
+
+    if "cafe_name" not in st.session_state:
+        if st.session_state.get("cafe_id"):
+            try:
+                cafe_resp = supabase.table("cafes").select("name").eq("id", st.session_state.cafe_id).single().execute()
+                st.session_state.cafe_name = cafe_resp.data.get("name", "") if cafe_resp.data else ""
+            except:
+                st.session_state.cafe_name = ""
+        else:
+            st.session_state.cafe_name = ""
 
     recipe_manager = RecipeManager()
     recipe_manager.supabase.postgrest.auth(token)
