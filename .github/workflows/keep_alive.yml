@@ -1,0 +1,17 @@
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Barista IA
+        run: |
+          echo "Haciendo ping a la app..."
+          curl -s -o /dev/null -w "%{http_code}" https://barista-rag.streamlit.app/
+          echo " — OK"
