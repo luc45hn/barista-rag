@@ -17,34 +17,18 @@ barista-rag/
 │   ├── logger.py                   # Logger estándar
 │   └── theme.py                    # Paleta de colores y constantes de UI
 ├── knowledge_base/                 # Documentos Markdown que conforman el RAG
-│   ├── 01_sca_brewing_water_standards.md
-│   ├── 02_sca_cva_cupping_protocol.md
-│   ├── 03_wcr_sensory_lexicon.md
-│   ├── 04_espresso_fundamentos.md
-│   ├── 05_origenes_cafe.md
-│   ├── 07_metodos_pourover.md
-│   ├── 08_metodos_inmersion.md
-│   ├── 09_ciencia_extraccion.md
-│   ├── 10_james_hoffmann_tecnicas.md
-│   └── 11_barista_hustle_scott_rao.md
 ├── scripts/
 │   └── ingest.py                   # Ingesta de documentos a Supabase (correr 1 vez)
 ├── supabase/
-│   └── migrations/
-│       ├── 001_auth_rls.sql        # RLS policies para tabla recipes
-│       └── 002_recipes.sql         # Schema de tabla recipes
-├── tests/
-│   ├── test_config.py
-│   ├── test_document_manager.py
-│   ├── test_recipe_manager.py
-│   └── test_consultant_agent.py
+│   └── migrations/                 # Migrations SQL
+├── tests/                          # 41 tests cubriendo todos los módulos core
 ├── .env.example
 ├── .streamlit/
 │   └── config.toml                 # Tema claro con paleta café
 └── requirements.txt
 ```
 
-### Stack tecnológico
+## Stack tecnológico
 
 | Capa | Tecnología | Detalle |
 |---|---|---|
@@ -52,11 +36,19 @@ barista-rag/
 | LLM | Groq — Llama 3.3 70B | Generación de respuestas (gratuito) |
 | Embeddings | Google Gemini Embedding 001 | Vectorización de documentos (gratuito) |
 | Vector DB | Supabase + pgvector | Búsqueda semántica |
-| Base de datos | Supabase (PostgreSQL) | Recetas, calibraciones y query logs |
-| Auth | Supabase Auth | Login de baristas |
+| Base de datos | Supabase (PostgreSQL) | Cafeterías, recetas, calibraciones y logs |
+| Auth | Supabase Auth | Login de baristas con scope por cafetería |
 | Deploy | Streamlit Cloud | Hosting gratuito |
 
-### Flujo del RAG
+## Modelo multi-cafetería
+
+Cada usuario pertenece a una cafetería (`cafe_id` guardado en los metadatos del usuario en Supabase Auth). Los datos están aislados por cafetería:
+
+- **Recetas:** las recetas públicas solo las ven los usuarios de la misma cafetería
+- **Calibraciones:** visibles solo dentro de la misma cafetería
+- **RAG:** las recetas relacionadas que aparecen en el chat se filtran por la cafetería del usuario
+
+## Flujo del RAG
 
 ```
 Usuario escribe pregunta
@@ -68,14 +60,22 @@ document_manager busca chunks relevantes (vector search)
         ↓
 Groq genera respuesta con el contexto técnico
         ↓
-recipe_manager busca recetas públicas marcadas como RAG
+recipe_manager busca recetas RAG públicas filtradas por cafe_id
         ↓
 Respuesta + fuentes + recetas relacionadas (expanders) se muestran en el chat
         ↓
 Query se registra en query_logs
 ```
 
-### Base de datos — tablas principales
+## Base de datos — tablas principales
+
+**`cafes`** — cafeterías registradas en la plataforma
+```sql
+id          uuid primary key
+name        text
+city        text
+created_at  timestamptz
+```
 
 **`documents`** — chunks del knowledge base con embeddings
 ```sql
@@ -85,17 +85,17 @@ metadata    jsonb        -- { source: "04_espresso_fundamentos.md", chunk_index:
 embedding   vector(768)  -- gemini-embedding-001 con output_dimensionality=768
 ```
 
-**`recipes`** — recetas del café con modelo de visibilidad
+**`recipes`** — recetas del café con modelo de visibilidad por cafetería
 ```sql
 id, cafe_name, name, method, coffee_bean
 dose_g, water_g, ratio, water_temp_c, brew_time_seconds, yield_g
 grind_notes, flavor_notes, tips
-created_by, is_public, made_public_by, use_in_rag, created_at
+created_by, cafe_id, is_public, made_public_by, use_in_rag, created_at
 ```
 
 Estados de una receta:
 - `is_public = false` → privada, solo visible para el creador
-- `is_public = true` → pública, visible para todos los usuarios
+- `is_public = true` → pública, visible para todos los usuarios de la misma cafetería
 - `use_in_rag = true` → aparece como receta relacionada en respuestas del chat (requiere `is_public = true`)
 
 **`calibrations`** — notas de calibración diaria (todos los campos opcionales)
@@ -106,7 +106,7 @@ varietal, origin, altitude_masl, process
 grinder_name, grinder_setting, hopper_level, machine_name, group_temp_c
 dose_g, yield_g, brew_time_seconds, ratio, tds
 extraction_balance, approved, acidity, sweetness, bitterness
-flavor_notes, adjustment_vs_prev, free_notes, created_by
+flavor_notes, adjustment_vs_prev, free_notes, created_by, cafe_id
 ```
 
 **`query_logs`** — registro de consultas por usuario
@@ -157,13 +157,20 @@ GROQ_API_KEY=tu-groq-key
 
 ### 4. Ejecutar migrations en Supabase
 
-En el **SQL Editor** de Supabase, ejecutar en orden:
+En el **SQL Editor** de Supabase, ejecutar este script completo:
 
 ```sql
--- Habilitar extensión de vectores
 create extension if not exists vector;
 
--- Tabla de documentos con embeddings
+create table cafes (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  city        text,
+  created_at  timestamptz not null default now()
+);
+alter table cafes enable row level security;
+create policy "read cafes" on cafes for select using (true);
+
 create table documents (
   id         bigserial primary key,
   content    text not null,
@@ -172,13 +179,11 @@ create table documents (
 );
 create index on documents using hnsw (embedding vector_cosine_ops);
 alter table documents enable row level security;
-create policy "read documents"
-  on documents for select using (true);
+create policy "read documents" on documents for select using (true);
 
--- Función de búsqueda vectorial
 create or replace function match_documents(
   query_embedding vector(768),
-  match_count     int default 4
+  match_count int default 4
 )
 returns table(id bigint, content text, metadata jsonb, similarity float)
 language sql stable security definer as $$
@@ -189,7 +194,12 @@ language sql stable security definer as $$
   limit match_count;
 $$;
 
--- Tabla de recetas
+create or replace function get_my_cafe_id()
+returns uuid language sql stable security definer as $$
+  select (raw_user_meta_data->>'cafe_id')::uuid
+  from auth.users where id = auth.uid();
+$$;
+
 create table recipes (
   id                  uuid primary key default gen_random_uuid(),
   cafe_name           text not null,
@@ -206,21 +216,19 @@ create table recipes (
   flavor_notes        text,
   tips                text,
   created_by          text not null,
+  cafe_id             uuid references cafes(id),
   is_public           boolean not null default false,
   made_public_by      text,
   use_in_rag          boolean not null default false,
   created_at          timestamptz not null default now()
 );
 alter table recipes enable row level security;
-create policy "Users can read public recipes"
+create policy "Users can read recipes in their cafe"
   on recipes for select
-  using (is_public = true or created_by = auth.email());
-create policy "Users can insert recipes"
-  on recipes for insert with check (true);
-create policy "Users can update own recipes"
-  on recipes for update using (created_by = auth.email());
+  using (cafe_id = get_my_cafe_id() or created_by = auth.email());
+create policy "Users can insert recipes" on recipes for insert with check (true);
+create policy "Users can update own recipes" on recipes for update using (created_by = auth.email());
 
--- Tabla de calibraciones
 create table calibrations (
   id uuid primary key default gen_random_uuid(),
   recorded_at timestamptz not null default now(),
@@ -233,13 +241,15 @@ create table calibrations (
   approved boolean default false, extraction_balance text,
   acidity integer, sweetness integer, bitterness integer,
   flavor_notes text, adjustment_vs_prev text, free_notes text,
-  created_by text not null
+  created_by text not null,
+  cafe_id uuid references cafes(id)
 );
 alter table calibrations enable row level security;
-create policy "read calibrations" on calibrations for select using (true);
+create policy "Users can read calibrations in their cafe"
+  on calibrations for select
+  using (cafe_id = get_my_cafe_id() or created_by = auth.email());
 create policy "insert calibrations" on calibrations for insert with check (true);
 
--- Tabla de query logs
 create table query_logs (
   id          uuid primary key default gen_random_uuid(),
   created_at  timestamptz not null default now(),
@@ -254,19 +264,41 @@ create policy "insert query_logs" on query_logs for insert with check (true);
 create policy "read query_logs" on query_logs for select using (true);
 ```
 
-### 5. Crear usuarios en Supabase
+### 5. Crear cafeterías
 
-En **Authentication → Users → Add user → Create new user** crear los usuarios de las baristas con email y contraseña.
+```sql
+insert into cafes (name, city) values ('Nombre del café', 'Ciudad') returning id, name;
+```
 
-### 6. Ingestar documentos
+Guardá los UUIDs devueltos — los necesitás para asignar a los usuarios.
+
+### 6. Crear usuarios en Supabase
+
+En **Authentication → Users → Add user → Create new user** crear los usuarios con email y contraseña.
+
+### 7. Asignar usuarios a cafeterías
+
+En el **SQL Editor**, asignar el `cafe_id` a cada usuario:
+
+```sql
+update auth.users
+set raw_user_meta_data = jsonb_set(
+  coalesce(raw_user_meta_data, '{}'),
+  '{cafe_id}',
+  '"uuid-de-la-cafeteria"'
+)
+where email = 'barista@ejemplo.com';
+```
+
+### 8. Ingestar documentos
 
 ```bash
 python scripts/ingest.py
 ```
 
-Esto lee los 11 archivos Markdown de `knowledge_base/`, los divide en chunks, genera embeddings con Gemini y los sube a Supabase. Tarda ~3 minutos. Se puede re-ejecutar para actualizar la base de conocimiento.
+Lee los 11 archivos Markdown de `knowledge_base/`, los divide en chunks, genera embeddings y los sube a Supabase. Tarda ~3 minutos. Se puede re-ejecutar para actualizar la base de conocimiento.
 
-### 7. Correr la app localmente
+### 9. Correr la app localmente
 
 ```bash
 streamlit run app.py
@@ -293,8 +325,6 @@ GROQ_API_KEY = "..."
 
 ## Base de conocimiento
 
-Los documentos en `knowledge_base/` cubren:
-
 | Archivo | Contenido |
 |---|---|
 | `01_sca_brewing_water_standards.md` | Golden Cup Standard, parámetros de agua SCA/SCAE, cupping, métodos |
@@ -308,43 +338,15 @@ Los documentos en `knowledge_base/` cubren:
 | `10_james_hoffmann_tecnicas.md` | Ultimate V60, Ultimate AeroPress, Shakerato, Espresso Tonic |
 | `11_barista_hustle_scott_rao.md` | Método 80:20, extracción diferencial, espresso de alta extracción |
 
-### Agregar documentos al knowledge base
-
-1. Agregar archivo `.md` a la carpeta `knowledge_base/`
-2. Re-ejecutar `python scripts/ingest.py`
-3. El script limpia y re-ingesta todos los documentos automáticamente
-
 ---
 
-## Uso de la app
-
-### Chat
-El uso principal. Las baristas pueden preguntar en lenguaje natural:
-- *"¿cómo corrijo un espresso ácido?"*
-- *"¿cuál es el ratio para el V60?"*
-- *"¿qué diferencia hay entre un latte y un flat white?"*
-- *"¿a qué sabe un café de Kenia?"*
-
-Al iniciar el chat aparecen 6 botones de consulta rápida (V60, Espresso, Leche, Defectos, Orígenes, Extracción) que desaparecen una vez iniciada la conversación.
-
-El agente responde con conocimiento técnico del RAG y al final muestra recetas relacionadas como cards expandibles si existen recetas públicas marcadas para RAG que coincidan con el tema.
-
-### Recetas
-Las baristas pueden cargar sus recetas específicas. Cada receta tiene tres estados:
-- **Privada** — solo visible para el creador
-- **Pública** — visible para todos los usuarios en la pestaña "Recetas públicas"
-- **En base de conocimiento** — aparece como receta relacionada en las respuestas del chat (solo disponible para recetas públicas)
-
-### Calibraciones
-Registro diario de la calibración del molino y la máquina. Ningún campo es obligatorio. El historial muestra las últimas 20 calibraciones ordenadas por fecha.
-
-### Tests
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-38 tests cubriendo config, document manager, recipe manager y el agente.
+41 tests cubriendo config, document manager, recipe manager y el agente.
 
 ---
 
