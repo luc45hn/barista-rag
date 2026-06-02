@@ -217,6 +217,18 @@ span[data-testid="stIconMaterial"][color] {
     -webkit-text-fill-color: #F0E0C8 !important;
 }
 
+/* Reducir espacio entre elementos del sidebar */
+[data-testid="stSidebar"] .stMarkdown {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+}
+[data-testid="stSidebar"] .stButton {
+    margin-bottom: 2px !important;
+}
+[data-testid="stSidebar"] hr {
+    margin: 8px 0 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -319,6 +331,42 @@ def sidebar(supabase, recipe_manager):
                 st.caption(f"• {doc}")
 
         st.divider()
+        st.markdown("**❓ Ayuda**")
+        if st.button("Ver preguntas frecuentes", use_container_width=True, key="ver_faqs"):
+            st.session_state.show_faqs = not st.session_state.get("show_faqs", False)
+
+        if st.session_state.get("show_faqs", False):
+            faqs = [
+                (
+                    "¿Qué puedo preguntarle al chat?",
+                    "Podés preguntar sobre técnicas de preparación (espresso, V60, AeroPress, Cold Brew), parámetros como ratio, temperatura y tiempo, orígenes y perfiles de sabor, y cómo corregir defectos como acidez o amargor excesivo."
+                ),
+                (
+                    "¿Qué es una receta privada vs pública?",
+                    "Una receta privada solo la ves vos. Una receta pública la pueden ver todos los usuarios de tu cafetería. Podés cambiar la visibilidad en cualquier momento desde 'Recetas'."
+                ),
+                (
+                    "¿Para qué sirve 'agregar a base de conocimiento'?",
+                    "Cuando marcás una receta pública como 'base de conocimiento', el asistente la incluye como referencia al final de sus respuestas cuando el tema es relevante. Solo las recetas públicas pueden agregarse."
+                ),
+                (
+                    "¿Qué es una calibración?",
+                    "Es un registro del ajuste diario del molino y la máquina. Podés anotar parámetros como molienda, dosis, tiempo, humedad y notas de sabor. Ningún campo es obligatorio — capturá lo que tengas disponible."
+                ),
+                (
+                    "¿El chat recuerda conversaciones anteriores?",
+                    "Sí. El historial se guarda automáticamente. Cuando volvés a entrar, la conversación continúa desde donde la dejaste."
+                ),
+                (
+                    "¿Qué documentos usa como fuente de conocimiento?",
+                    "Estándares SCA (Golden Cup, agua, cupping), WCR Sensory Lexicon (110 atributos sensoriales), técnicas de James Hoffmann (V60, AeroPress), fundamentos de espresso, métodos de filtrado e inmersión, ciencia de la extracción, orígenes del café, y Barista Hustle / Scott Rao."
+                ),
+            ]
+            for question, answer in faqs:
+                with st.expander(question):
+                    st.write(answer)
+
+        st.divider()
         if st.button("↩  Cerrar sesión", use_container_width=True):
             supabase.auth.sign_out()
             for key in list(st.session_state.keys()):
@@ -369,6 +417,7 @@ def chat_page(agent, supabase):
 
     if "messages" not in st.session_state:
         st.session_state.messages = load_messages_from_db(supabase, user_email)
+        st.session_state.is_first_visit = len(st.session_state.messages) == 0
 
     if "quick_query" in st.session_state:
         quick = st.session_state.pop("quick_query")
@@ -389,22 +438,37 @@ def chat_page(agent, supabase):
         save_message_to_db(supabase, user_email, cafe_id, "assistant", answer, sources, related_recipes)
 
     if not st.session_state.messages:
-        st.markdown(f"#### Hola {user_name} 👋")
-        st.caption("Preguntame sobre técnicas, recetas u orígenes")
-        st.markdown("<br>", unsafe_allow_html=True)
+        if st.session_state.get("is_first_visit"):
+            welcome = """¡Hola! Soy **Barista IA**, tu asistente de café de especialidad ☕
 
-        quick_queries = [
-            ("☕ Espresso", "Espresso"),
-            ("🫗 V60", "V60"),
-            ("🥛 Leche", "Leche"),
-            ("⚠️ Defectos", "Defectos"),
-            ("🌍 Orígenes", "Orígenes"),
-            ("🔬 Extracción", "Extracción"),
-        ]
-        for label, q in quick_queries:
-            if st.button(label, use_container_width=True, key=f"main_quick_{q}"):
-                st.session_state.quick_query = q
-                st.rerun()
+Puedo ayudarte con:
+- Técnicas de preparación — espresso, V60, AeroPress, Cold Brew y más
+- Parámetros y recetas — ratios, temperaturas, tiempos
+- Orígenes y perfiles de sabor
+- Resolución de problemas — espresso ácido, amargo, channeling
+- Estándares SCA, técnicas de James Hoffmann y más
+
+También podés guardar tus propias **recetas** y registrar tus **calibraciones** diarias desde el menú lateral.
+
+¿Por dónde empezamos?"""
+            with st.chat_message("assistant", avatar="☕"):
+                st.write(welcome)
+        else:
+            st.markdown(f"#### Hola {user_name} 👋")
+            st.caption("Preguntame sobre técnicas, recetas u orígenes")
+            st.markdown("<br>", unsafe_allow_html=True)
+            quick_queries = [
+                ("☕ Espresso", "Espresso"),
+                ("🫗 V60", "V60"),
+                ("🥛 Leche", "Leche"),
+                ("⚠️ Defectos", "Defectos"),
+                ("🌍 Orígenes", "Orígenes"),
+                ("🔬 Extracción", "Extracción"),
+            ]
+            for label, q in quick_queries:
+                if st.button(label, use_container_width=True, key=f"main_quick_{q}"):
+                    st.session_state.quick_query = q
+                    st.rerun()
 
     for msg in st.session_state.messages:
         if msg["role"] == "user":
