@@ -113,3 +113,22 @@ def test_build_context_returns_four_values(mock_agent):
     assert isinstance(intents, list)
     assert isinstance(related_recipes, list)
     assert len(related_recipes) == 1
+
+def test_chat_passes_cafe_id_to_build_context(mock_agent):
+    mock_agent.document_manager.search.return_value = []
+    mock_agent.document_manager.format_context.return_value = ""
+    mock_agent.recipe_manager.search_related_recipes.return_value = []
+    mock_agent.groq_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="Respuesta."))]
+    )
+    mock_agent.chat("como preparo un V60", cafe_id="7bdb4c89-8806-478d-9446-a80135c894bf")
+    call_args = mock_agent.recipe_manager.search_related_recipes.call_args
+    assert call_args[1].get("cafe_id") == "7bdb4c89-8806-478d-9446-a80135c894bf"
+
+def test_build_context_passes_cafe_id_to_search(mock_agent):
+    mock_agent.recipe_manager.search_related_recipes.return_value = []
+    mock_agent.document_manager.search.return_value = []
+    mock_agent.document_manager.format_context.return_value = ""
+    mock_agent.build_context("espresso", cafe_id="7bdb4c89-8806-478d-9446-a80135c894bf")
+    call_args = mock_agent.recipe_manager.search_related_recipes.call_args
+    assert call_args[1].get("cafe_id") == "7bdb4c89-8806-478d-9446-a80135c894bf"

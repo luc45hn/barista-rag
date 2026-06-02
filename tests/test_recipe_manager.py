@@ -124,3 +124,27 @@ def test_format_recipe_card_includes_parameters(mock_recipe_manager):
     result = mock_recipe_manager.format_recipe_card(SAMPLE_RECIPE)
     assert "15" in result or "15.0" in result
     assert "93" in result or "93.0" in result
+
+def test_get_public_recipes_filters_by_cafe_id(mock_recipe_manager):
+    mock_recipe_manager.supabase.table.return_value.select.return_value \
+        .eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.get_public_recipes(cafe_id="7bdb4c89-8806-478d-9446-a80135c894bf")
+    assert len(results) == 1
+
+def test_get_rag_recipes_filters_by_cafe_id(mock_recipe_manager):
+    mock_recipe_manager.supabase.table.return_value.select.return_value \
+        .eq.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.get_rag_recipes(cafe_id="7bdb4c89-8806-478d-9446-a80135c894bf")
+    assert len(results) == 1
+
+def test_search_related_recipes_with_cafe_id(mock_recipe_manager):
+    mock_recipe_manager.supabase.table.return_value.select.return_value \
+        .eq.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.search_related_recipes("v60", cafe_id="7bdb4c89-8806-478d-9446-a80135c894bf")
+    assert len(results) == 1
+
+def test_search_related_recipes_no_cafe_id_returns_all(mock_recipe_manager):
+    mock_recipe_manager.supabase.table.return_value.select.return_value \
+        .eq.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(data=[SAMPLE_RECIPE])
+    results = mock_recipe_manager.search_related_recipes("v60")
+    assert isinstance(results, list)
