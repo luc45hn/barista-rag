@@ -34,11 +34,39 @@ st.set_page_config(
 )
 
 st.markdown("""
-<link rel="manifest" href="/app/static/manifest.json">
 <meta name="theme-color" content="#3D2314">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Barista IA">
+<script>
+const manifest = {
+  "name": "Barista IA",
+  "short_name": "Barista IA",
+  "description": "Asistente inteligente para baristas en entrenamiento",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF6F0",
+  "theme_color": "#3D2314",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/luc45hn/barista-rag/master/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/luc45hn/barista-rag/master/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+};
+const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+const url = URL.createObjectURL(blob);
+const link = document.createElement('link');
+link.rel = 'manifest';
+link.href = url;
+document.head.appendChild(link);
+</script>
 """, unsafe_allow_html=True)
 
 st.markdown("""
