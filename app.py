@@ -34,6 +34,11 @@ st.set_page_config(
 )
 
 st.markdown("""
+<link rel="manifest" href="/app/static/manifest.json">
+<meta name="theme-color" content="#3D2314">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Barista IA">
 <style>
     /* Fondo general */
     .stApp { background-color: #FAF6F0; }
