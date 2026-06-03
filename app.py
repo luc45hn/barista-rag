@@ -39,6 +39,9 @@ st.markdown("""
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Barista IA">
+""", unsafe_allow_html=True)
+
+st.markdown("""
 <style>
     /* Fondo general */
     .stApp { background-color: #FAF6F0; }
