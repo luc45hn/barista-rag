@@ -4,6 +4,7 @@ from core.config import Config
 from core.consultant_agent import ConsultantAgent
 from core.recipe_manager import RecipeManager
 from core.logger import get_logger
+from streamlit_local_storage import LocalStorage
 
 logger = get_logger("app")
 
@@ -271,7 +272,7 @@ span[data-testid="stIconMaterial"][color] {
 def init_supabase():
     return create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
 
-def login_page(supabase):
+def login_page(supabase, local_storage):
     st.markdown("""
     <div class="login-container">
         <div class="login-title">☕ Barista IA</div>
@@ -292,6 +293,11 @@ def login_page(supabase):
                 st.session_state.user = response.user
                 st.session_state.session = response.session
                 st.session_state.cafe_id = response.user.user_metadata.get("cafe_id", "")
+                # Guardar tokens en localStorage
+                local_storage.setItem("barista_session", {
+                    "access_token": response.session.access_token,
+                    "refresh_token": response.session.refresh_token
+                })
                 if st.session_state.cafe_id:
                     try:
                         cafe_resp = supabase.table("cafes").select("name").eq("id", st.session_state.cafe_id).single().execute()
@@ -304,7 +310,7 @@ def login_page(supabase):
             except Exception:
                 st.error("Email o contraseña incorrectos")
 
-def sidebar(supabase, recipe_manager):
+def sidebar(supabase, recipe_manager, local_storage):
     with st.sidebar:
         user_email = st.session_state.user.email
         user_name = user_email.split("@")[0].capitalize()
@@ -404,9 +410,14 @@ def sidebar(supabase, recipe_manager):
 
         st.divider()
         if st.button("↩  Cerrar sesión", use_container_width=True):
-            supabase.auth.sign_out()
+            try:
+                supabase.auth.sign_out()
+            except:
+                pass
+            local_storage.deleteItem("barista_session")
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
+            st.session_state["logged_out"] = True
             st.rerun()
 
     return st.session_state.get("current_page", "💬 Chat")
@@ -919,17 +930,43 @@ def _new_calibration_form(supabase):
 def main():
     Config.validate()
     supabase = init_supabase()
+    local_storage = LocalStorage()
+
+    if st.session_state.get("logged_out"):
+        del st.session_state["logged_out"]
+        local_storage.deleteItem("barista_session")
+        st.rerun()
 
     if "user" not in st.session_state:
-        login_page(supabase)
+        try:
+            session_data = local_storage.getItem("barista_session")
+            if session_data and isinstance(session_data, dict):
+                access_token = session_data.get("access_token")
+                refresh_token = session_data.get("refresh_token")
+                if access_token and refresh_token:
+                    response = supabase.auth.set_session(access_token, refresh_token)
+                    if response.user:
+                        st.session_state.user = response.user
+                        st.session_state.session = response.session
+                        st.session_state.cafe_id = response.user.user_metadata.get("cafe_id", "")
+                        if st.session_state.cafe_id:
+                            try:
+                                cafe_resp = supabase.table("cafes").select("name").eq("id", st.session_state.cafe_id).single().execute()
+                                st.session_state.cafe_name = cafe_resp.data.get("name", "") if cafe_resp.data else ""
+                            except:
+                                st.session_state.cafe_name = ""
+                        else:
+                            st.session_state.cafe_name = ""
+        except Exception as e:
+            logger.warning(f"No se pudo restaurar sesión: {e}")
+
+    if "user" not in st.session_state:
+        login_page(supabase, local_storage)
         return
 
-    token = st.session_state.session.access_token
-    supabase.postgrest.auth(token)
-
+    # Fallbacks
     if "cafe_id" not in st.session_state:
         st.session_state.cafe_id = st.session_state.user.user_metadata.get("cafe_id", "")
-
     if "cafe_name" not in st.session_state:
         if st.session_state.get("cafe_id"):
             try:
@@ -940,12 +977,15 @@ def main():
         else:
             st.session_state.cafe_name = ""
 
+    token = st.session_state.session.access_token
+    supabase.postgrest.auth(token)
+
     recipe_manager = RecipeManager()
     recipe_manager.supabase.postgrest.auth(token)
 
     agent = ConsultantAgent()
 
-    page = sidebar(supabase, recipe_manager)
+    page = sidebar(supabase, recipe_manager, local_storage)
 
     if page == "💬 Chat":
         chat_page(agent, supabase)

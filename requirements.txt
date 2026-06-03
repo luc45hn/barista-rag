@@ -8,3 +8,4 @@ langchain-community
 python-dotenv
 pytest
 extra-streamlit-components
+streamlit-local-storage
