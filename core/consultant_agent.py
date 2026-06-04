@@ -64,7 +64,11 @@ class ConsultantAgent:
         context_parts = []
         sources = []
 
-        doc_results = self.document_manager.search(query, top_k=Config.TOP_K_RESULTS)
+        doc_results = self.document_manager.search(
+            query,
+            top_k=Config.TOP_K_RESULTS,
+            cafe_id=cafe_id
+        )
         if doc_results:
             docs_context = self.document_manager.format_context(doc_results)
             context_parts.append(f"CONOCIMIENTO TÉCNICO:\n{docs_context}")

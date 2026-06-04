@@ -5,6 +5,7 @@ from core.consultant_agent import ConsultantAgent
 from core.recipe_manager import RecipeManager
 from core.logger import get_logger
 from streamlit_local_storage import LocalStorage
+from core.document_ingestor import ingest_user_document, approve_user_document, delete_user_document
 
 logger = get_logger("app")
 
@@ -341,14 +342,22 @@ def sidebar(supabase, recipe_manager, local_storage):
             st.session_state.current_page = "💬 Chat"
             st.session_state.pop("recipes_subpage", None)
             st.session_state.pop("calibrations_subpage", None)
+            st.session_state.pop("documents_subpage", None)
             st.rerun()
         if st.button("📋  Recetas", use_container_width=True, key="nav_recetas"):
             st.session_state.current_page = "📋 Recetas"
             st.session_state.pop("calibrations_subpage", None)
+            st.session_state.pop("documents_subpage", None)
             st.rerun()
         if st.button("🎯  Calibraciones", use_container_width=True, key="nav_calibraciones"):
             st.session_state.current_page = "🎯 Calibraciones"
             st.session_state.pop("recipes_subpage", None)
+            st.session_state.pop("documents_subpage", None)
+            st.rerun()
+        if st.button("📄  Documentos", use_container_width=True, key="nav_documentos"):
+            st.session_state.current_page = "📄 Documentos"
+            st.session_state.pop("recipes_subpage", None)
+            st.session_state.pop("calibrations_subpage", None)
             st.rerun()
 
         st.divider()
@@ -927,6 +936,85 @@ def _new_calibration_form(supabase):
             st.session_state.pop("calibrations_subpage", None)
             st.rerun()
 
+def documents_page(supabase, user_email: str, cafe_id: str):
+    col1, col2 = st.columns([3, 1])
+    col1.markdown("#### 📄 Documentos")
+    if col2.button("➕ Subir", use_container_width=True):
+        st.session_state.documents_subpage = "upload"
+        st.rerun()
+
+    if st.session_state.get("documents_subpage") == "upload":
+        if st.button("← Volver", key="back_documents"):
+            st.session_state.pop("documents_subpage", None)
+            st.rerun()
+        st.markdown("**Subir nuevo documento**")
+        st.caption("Formatos aceptados: PDF, Markdown (.md), texto (.txt)")
+        uploaded_file = st.file_uploader(
+            "Seleccioná el archivo",
+            type=["pdf", "md", "txt"],
+            key="doc_uploader"
+        )
+        if uploaded_file:
+            st.caption(f"Archivo: {uploaded_file.name} — {uploaded_file.size / 1024:.1f} KB")
+            if st.button("📤 Procesar e ingestar", use_container_width=True):
+                with st.spinner("Procesando documento..."):
+                    result = ingest_user_document(
+                        file_bytes=uploaded_file.read(),
+                        filename=uploaded_file.name,
+                        cafe_id=cafe_id,
+                        uploaded_by=user_email,
+                    )
+                if result["success"]:
+                    st.success(f"✅ Documento ingestado en {result['chunks']} chunks. Queda pendiente de aprobación.")
+                    st.session_state.pop("documents_subpage", None)
+                    st.rerun()
+                else:
+                    st.error(f"❌ {result['error']}")
+        return
+
+    st.divider()
+
+    # Listar documentos de la cafetería
+    response = supabase.table("user_documents").select("*") \
+        .eq("cafe_id", cafe_id) \
+        .order("created_at", desc=True) \
+        .execute()
+    docs = response.data or []
+
+    if not docs:
+        st.info("Todavía no hay documentos subidos. ¡Subí el primero!")
+        return
+
+    pending = [d for d in docs if not d.get("approved")]
+    approved = [d for d in docs if d.get("approved")]
+
+    if pending:
+        st.markdown("**⏳ Pendientes de aprobación**")
+        for doc in pending:
+            with st.expander(f"{doc['filename']}"):
+                st.caption(f"Subido por: {doc['uploaded_by'].split('@')[0]}")
+                from datetime import datetime
+                dt = datetime.fromisoformat(doc["created_at"].replace("Z", "+00:00"))
+                st.caption(f"Fecha: {dt.strftime('%d/%m/%Y')}")
+                col1, col2 = st.columns(2)
+                if col1.button("✓ Aprobar", key=f"approve_doc_{doc['id']}", use_container_width=True):
+                    approve_user_document(doc["id"], user_email)
+                    st.rerun()
+                if col2.button("🗑 Eliminar", key=f"delete_doc_{doc['id']}", use_container_width=True):
+                    delete_user_document(doc["id"], doc["storage_path"])
+                    st.rerun()
+
+    if approved:
+        st.markdown("**✅ Aprobados y activos en el RAG**")
+        for doc in approved:
+            with st.expander(f"{doc['filename']}"):
+                st.caption(f"Subido por: {doc['uploaded_by'].split('@')[0]}")
+                st.caption(f"Aprobado por: {doc.get('approved_by', '-').split('@')[0]}")
+                if st.button("🗑 Eliminar", key=f"delete_approved_{doc['id']}", use_container_width=True):
+                    delete_user_document(doc["id"], doc["storage_path"])
+                    st.rerun()
+
+
 def main():
     Config.validate()
     supabase = init_supabase()
@@ -993,6 +1081,8 @@ def main():
         recipes_page(recipe_manager, st.session_state.user.email, st.session_state.get("cafe_id", ""))
     elif page == "🎯 Calibraciones":
         calibrations_page(supabase)
+    elif page == "📄 Documentos":
+        documents_page(supabase, st.session_state.user.email, st.session_state.get("cafe_id", ""))
 
 if __name__ == "__main__":
     main()

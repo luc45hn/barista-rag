@@ -25,19 +25,21 @@ class DocumentManager:
         )
         return result.embeddings[0].values
 
-    def search(self, query: str, top_k: int = None) -> list[dict]:
+    def search(self, query: str, top_k: int = None, cafe_id: str = "") -> list[dict]:
         top_k = top_k or Config.TOP_K_RESULTS
         logger.info(f"Buscando: '{query[:60]}...'")
+        logger.info(f"Buscando con cafe_id: '{cafe_id}'")
 
         query_embedding = self.get_embedding(query)
 
-        response = self.supabase.rpc(
-            "match_documents",
-            {
-                "query_embedding": query_embedding,
-                "match_count": top_k,
-            }
-        ).execute()
+        params = {
+            "query_embedding": query_embedding,
+            "match_count": top_k,
+        }
+        if cafe_id:
+            params["filter_cafe_id"] = cafe_id
+
+        response = self.supabase.rpc("match_documents", params).execute()
 
         results = response.data or []
         logger.info(f"Encontrados {len(results)} chunks relevantes")
