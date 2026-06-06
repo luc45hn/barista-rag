@@ -1,6 +1,6 @@
 # ☕ Barista IA
 
-Asistente inteligente para baristas en entrenamiento. Combina un RAG (Retrieval-Augmented Generation) con conocimiento técnico de café de fuentes especializadas (SCA, James Hoffmann, WCR, Barista Hustle, Scott Rao) con recetas y calibraciones propias del café.
+Asistente inteligente para baristas en entrenamiento. Combina un RAG (Retrieval-Augmented Generation) con conocimiento técnico de café de fuentes especializadas (SCA, James Hoffmann, WCR, Barista Hustle, Scott Rao) con recetas, calibraciones y documentos propios del café.
 
 ---
 
@@ -8,17 +8,18 @@ Asistente inteligente para baristas en entrenamiento. Combina un RAG (Retrieval-
 
 ```
 barista-rag/
-├── app.py                          # UI Streamlit — chat, recetas, calibraciones
+├── app.py                          # UI Streamlit — chat, recetas, calibraciones, documentos
 ├── core/
 │   ├── consultant_agent.py         # Agente RAG — intent detection + generación
 │   ├── document_manager.py         # Búsqueda vectorial en Supabase (pgvector)
+│   ├── document_ingestor.py        # Subida, ingesta y aprobación de documentos de usuarios
 │   ├── recipe_manager.py           # CRUD de recetas en Supabase
 │   ├── config.py                   # Variables de entorno y configuración
 │   ├── logger.py                   # Logger estándar
 │   └── theme.py                    # Paleta de colores y constantes de UI
-├── knowledge_base/                 # Documentos Markdown que conforman el RAG
+├── knowledge_base/                 # Documentos Markdown base del RAG (globales)
 ├── scripts/
-│   └── ingest.py                   # Ingesta de documentos a Supabase (correr 1 vez)
+│   └── ingest.py                   # Ingesta de documentos base (correr 1 vez)
 ├── static/
 │   ├── icon-192.png                # Ícono PWA (192x192)
 │   ├── icon-512.png                # Ícono PWA (512x512)
@@ -28,7 +29,7 @@ barista-rag/
 ├── tests/                          # 56 tests cubriendo todos los módulos
 ├── .github/
 │   └── workflows/
-│       ├── tests.yml               # Corre tests en cada push a master
+│       ├── tests.yml               # Tests automáticos en cada push a master
 │       └── keep_alive.yml          # Ping a la app cada 6 horas
 ├── .env.example
 ├── .streamlit/
@@ -44,7 +45,8 @@ barista-rag/
 | LLM | Groq — Llama 3.3 70B | Generación de respuestas (gratuito) |
 | Embeddings | Google Gemini Embedding 001 | Vectorización de documentos (gratuito) |
 | Vector DB | Supabase + pgvector | Búsqueda semántica |
-| Base de datos | Supabase (PostgreSQL) | Cafeterías, recetas, calibraciones, mensajes y logs |
+| Base de datos | Supabase (PostgreSQL) | Cafeterías, recetas, calibraciones, mensajes, documentos y logs |
+| Storage | Supabase Storage | Archivos PDF y Markdown subidos por usuarios |
 | Auth | Supabase Auth | Login de baristas con scope por cafetería |
 | Sesión | streamlit-local-storage | Sesión persistente entre cierres del browser |
 | Deploy | Streamlit Cloud | Hosting gratuito |
@@ -56,7 +58,8 @@ Cada usuario pertenece a una cafetería (`cafe_id` en los metadatos del usuario 
 
 - **Recetas:** las recetas públicas solo las ven los usuarios de la misma cafetería
 - **Calibraciones:** visibles solo dentro de la misma cafetería
-- **RAG:** las recetas relacionadas en el chat se filtran por cafetería
+- **Documentos de usuario:** los documentos subidos están aislados por cafetería
+- **RAG:** los chunks del knowledge base, recetas y documentos de usuarios se filtran por cafetería
 
 ## Flujo del RAG
 
@@ -67,6 +70,7 @@ consultant_agent detecta intent
 (recipe / troubleshoot / origin / sensory / general)
         ↓
 document_manager busca chunks relevantes (vector search)
+— incluye knowledge base global + documentos aprobados de la cafetería
         ↓
 Groq genera respuesta con el contexto técnico
         ↓
@@ -86,9 +90,18 @@ Query registrada en query_logs
 id uuid primary key, name text, city text, created_at timestamptz
 ```
 
-**`documents`** — chunks del knowledge base con embeddings
+**`documents`** — chunks con embeddings (globales + de usuarios)
 ```sql
-id bigserial primary key, content text, metadata jsonb, embedding vector(768)
+id bigserial primary key, content text
+metadata jsonb  -- { source, cafe_id?, user_document_id?, approved?, chunk_index }
+embedding vector(768)
+```
+
+**`user_documents`** — registro de documentos subidos por usuarios
+```sql
+id uuid primary key, cafe_id uuid, uploaded_by text
+filename text, storage_path text
+approved boolean, approved_by text, created_at timestamptz
 ```
 
 **`recipes`** — recetas con modelo de visibilidad por cafetería
@@ -98,11 +111,6 @@ dose_g, water_g, ratio, water_temp_c, brew_time_seconds, yield_g
 grind_notes, flavor_notes, tips
 created_by, cafe_id, is_public, made_public_by, use_in_rag, created_at
 ```
-
-Estados de una receta:
-- `is_public = false` → privada, solo visible para el creador
-- `is_public = true` → pública, visible para todos los usuarios de la misma cafetería
-- `use_in_rag = true` → aparece como receta relacionada en respuestas del chat
 
 **`calibrations`** — notas de calibración diaria (todos los campos opcionales)
 ```sql
@@ -127,6 +135,11 @@ created_at timestamptz
 id, created_at, user_email, query, intents, chunks_found, had_own_recipes
 ```
 
+## Supabase Storage
+
+Bucket **`user-documents`** (privado) — almacena archivos PDF y Markdown subidos por usuarios.
+Estructura de paths: `{cafe_id}/{filename}`
+
 ---
 
 ## Setup desde cero
@@ -137,17 +150,13 @@ id, created_at, user_email, query, intents, chunks_found, had_own_recipes
 git clone https://github.com/luc45hn/barista-rag
 cd barista-rag
 python3 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ### 2. Crear proyecto en Supabase
 
-1. Crear nuevo proyecto en [supabase.com](https://supabase.com)
-2. En **Project Settings → API** copiar:
-   - Project URL → `SUPABASE_URL`
-   - Publishable key → `SUPABASE_KEY`
-   - Secret key → `SUPABASE_SERVICE_KEY`
+En **Project Settings → API** copiar Project URL, Publishable key y Secret key.
 
 ### 3. Configurar variables de entorno
 
@@ -155,7 +164,6 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Completar `.env`:
 ```
 SUPABASE_URL=https://tu-proyecto.supabase.co
 SUPABASE_KEY=tu-publishable-key
@@ -164,118 +172,29 @@ GOOGLE_API_KEY=tu-google-ai-studio-key
 GROQ_API_KEY=tu-groq-key
 ```
 
-### 4. Ejecutar migrations en Supabase
+### 4. Crear bucket de Storage
 
-En el **SQL Editor** de Supabase, ejecutar este script completo:
+En Supabase **Storage**, crear un bucket privado llamado `user-documents`.
 
-```sql
-create extension if not exists vector;
+### 5. Ejecutar migrations en Supabase
 
-create table cafes (
-  id uuid primary key default gen_random_uuid(),
-  name text not null, city text,
-  created_at timestamptz not null default now()
-);
-alter table cafes enable row level security;
-create policy "read cafes" on cafes for select using (true);
+En el **SQL Editor**, ejecutar el script completo del README en inglés (sección Setup, paso 5).
 
-create table documents (
-  id bigserial primary key, content text not null,
-  metadata jsonb, embedding vector(768)
-);
-create index on documents using hnsw (embedding vector_cosine_ops);
-alter table documents enable row level security;
-create policy "read documents" on documents for select using (true);
-
-create or replace function match_documents(query_embedding vector(768), match_count int default 4)
-returns table(id bigint, content text, metadata jsonb, similarity float)
-language sql stable security definer as $$
-  select id, content, metadata, 1 - (embedding <=> query_embedding) as similarity
-  from documents order by embedding <=> query_embedding limit match_count;
-$$;
-
-create or replace function get_my_cafe_id()
-returns uuid language sql stable security definer as $$
-  select (raw_user_meta_data->>'cafe_id')::uuid from auth.users where id = auth.uid();
-$$;
-
-create table recipes (
-  id uuid primary key default gen_random_uuid(),
-  cafe_name text not null, name text not null, method text not null,
-  coffee_bean text, dose_g numeric, water_g numeric, ratio text,
-  water_temp_c numeric, brew_time_seconds integer, yield_g numeric,
-  grind_notes text, flavor_notes text, tips text,
-  created_by text not null, cafe_id uuid references cafes(id),
-  is_public boolean not null default false, made_public_by text,
-  use_in_rag boolean not null default false,
-  created_at timestamptz not null default now()
-);
-alter table recipes enable row level security;
-create policy "Users can read recipes in their cafe" on recipes for select
-  using (cafe_id = get_my_cafe_id() or created_by = auth.email());
-create policy "Users can insert recipes" on recipes for insert with check (true);
-create policy "Users can update own recipes" on recipes for update using (created_by = auth.email());
-
-create table calibrations (
-  id uuid primary key default gen_random_uuid(),
-  recorded_at timestamptz not null default now(),
-  shift_moment text, room_temp_c numeric, humidity_pct numeric,
-  coffee_name text, roaster_name text, roast_date date, days_since_roast integer,
-  varietal text, origin text, altitude_masl integer, process text,
-  grinder_name text, grinder_setting text, hopper_level text,
-  machine_name text, group_temp_c numeric, pressure_bar numeric,
-  dose_g numeric, yield_g numeric, brew_time_seconds integer, ratio text, tds numeric,
-  approved boolean default false, extraction_balance text,
-  acidity integer, sweetness integer, bitterness integer,
-  flavor_notes text, adjustment_vs_prev text, free_notes text,
-  created_by text not null, cafe_id uuid references cafes(id)
-);
-alter table calibrations enable row level security;
-create policy "Users can read calibrations in their cafe" on calibrations for select
-  using (cafe_id = get_my_cafe_id() or created_by = auth.email());
-create policy "insert calibrations" on calibrations for insert with check (true);
-
-create table messages (
-  id uuid primary key default gen_random_uuid(),
-  user_email text not null, cafe_id uuid references cafes(id),
-  role text not null, content text not null,
-  sources text[], related_recipes jsonb,
-  created_at timestamptz not null default now()
-);
-alter table messages enable row level security;
-create policy "Users can read own messages" on messages for select using (user_email = auth.email());
-create policy "Users can insert own messages" on messages for insert with check (user_email = auth.email());
-
-create table query_logs (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamptz not null default now(),
-  user_email text not null, query text not null,
-  intents text[], chunks_found integer, had_own_recipes boolean default false
-);
-alter table query_logs enable row level security;
-create policy "insert query_logs" on query_logs for insert with check (true);
-create policy "read query_logs" on query_logs for select using (true);
-```
-
-### 5. Crear cafeterías
+### 6. Crear cafeterías
 
 ```sql
 insert into cafes (name, city) values ('Nombre del café', 'Ciudad') returning id, name;
 ```
 
-### 6. Crear usuarios en Supabase
-
-En **Authentication → Users → Add user → Create new user**.
-
-### 7. Asignar usuarios a cafeterías
+### 7. Crear usuarios y asignarlos a cafeterías
 
 ```sql
 update auth.users
-set raw_user_meta_data = jsonb_set(coalesce(raw_user_meta_data, '{}'), '{cafe_id}', '"uuid-de-la-cafeteria"')
+set raw_user_meta_data = jsonb_set(coalesce(raw_user_meta_data, '{}'), '{cafe_id}', '"uuid-cafeteria"')
 where email = 'barista@ejemplo.com';
 ```
 
-### 8. Ingestar documentos
+### 8. Ingestar documentos base
 
 ```bash
 python scripts/ingest.py
@@ -291,28 +210,24 @@ streamlit run app.py
 
 ## Deploy en Streamlit Cloud
 
-1. Ir a [share.streamlit.io](https://share.streamlit.io)
-2. Conectar el repo de GitHub — main file: `app.py`
-3. En **Advanced settings → Secrets** agregar todas las variables del `.env`
-
-### Secrets para GitHub Actions
-
-En **GitHub → Settings → Secrets and variables → Actions**, agregar los mismos 5 secrets. Esto habilita los tests automáticos en cada push.
+1. Ir a [share.streamlit.io](https://share.streamlit.io) → conectar repo → main file: `app.py`
+2. En **Advanced settings → Secrets** agregar las 5 variables
+3. En **GitHub → Settings → Secrets → Actions** agregar las mismas 5 variables
 
 ---
 
 ## PWA — Instalación en el celular
 
-Las baristas pueden instalar la app en su pantalla de inicio:
-
 - **Android:** menú del browser → "Agregar a pantalla de inicio"
 - **iPhone:** botón compartir → "Añadir a pantalla de inicio"
 
-Una vez instalada, la app se abre sin barra del navegador como una app nativa. La sesión persiste entre cierres gracias a `streamlit-local-storage`.
+La sesión persiste entre cierres gracias a `streamlit-local-storage`.
 
 ---
 
 ## Base de conocimiento
+
+Documentos globales (disponibles para todas las cafeterías):
 
 | Archivo | Contenido |
 |---|---|
@@ -326,6 +241,8 @@ Una vez instalada, la app se abre sin barra del navegador como una app nativa. L
 | `09_ciencia_extraccion.md` | TDS, extracción, tabla de molienda |
 | `10_james_hoffmann_tecnicas.md` | Ultimate V60, Ultimate AeroPress, Shakerato |
 | `11_barista_hustle_scott_rao.md` | Método 80:20, espresso de alta extracción |
+
+Los usuarios también pueden subir sus propios documentos PDF o Markdown desde la sección **Documentos**. Los documentos subidos están aislados por cafetería y requieren aprobación antes de entrar al RAG.
 
 ---
 
@@ -341,8 +258,8 @@ pytest tests/ -v
 
 ## CI/CD
 
-- **tests.yml** — corre `pytest tests/ -v` en cada push a `master`
-- **keep_alive.yml** — hace ping a la app cada 6 horas para evitar que duerma. También se puede ejecutar manualmente desde GitHub Actions.
+- **tests.yml** — corre en cada push a `master`
+- **keep_alive.yml** — ping cada 6 horas, ejecutable manualmente desde GitHub Actions
 
 ---
 
@@ -352,6 +269,6 @@ pytest tests/ -v
 |---|---|
 | Groq (Llama 3.3 70B) | ~1.700 requests/día |
 | Google Gemini Embedding | 1.500 requests/día |
-| Supabase | 500 MB base de datos, 2 GB bandwidth |
-| Streamlit Cloud | 1 app, duerme después de ~12h inactividad (mantenida activa por GitHub Actions) |
+| Supabase | 500 MB base de datos, 1 GB storage, 2 GB bandwidth |
+| Streamlit Cloud | 1 app, ~12h inactividad (mantenida activa por GitHub Actions) |
 | GitHub Actions | 2.000 minutos/mes |
