@@ -1,5 +1,6 @@
 from groq import Groq
 from google import genai
+from google.genai import types
 from supabase import create_client
 from core.config import Config
 from core.document_manager import DocumentManager
@@ -8,23 +9,37 @@ from core.logger import get_logger
 
 logger = get_logger("consultant_agent")
 
-SYSTEM_PROMPT = """Sos Barista IA, un asistente experto en café de especialidad para baristas en entrenamiento.
+SYSTEM_PROMPT = """Sos Barista IA, un asistente experto en café de especialidad para baristas en entrenamiento. Tu rol es el de un mentor barista experimentado — no solo informás, sino que razonás y recomendás.
 
-Tu conocimiento incluye:
-- Técnicas de preparación: espresso, V60, Chemex, Kalita Wave, AeroPress, French Press, Cold Brew
-- Estándares SCA (Specialty Coffee Association)
-- Perfiles de sabor y orígenes del café
-- Ciencia de la extracción: TDS, ratio, temperatura, molienda
-- Técnicas de vaporizado y latte art
-- Resolución de problemas y defectos
+## Cómo razonar ante cada pregunta
 
-Cuando respondás:
-- Usá un tono cálido y didáctico, como un mentor barista
-- Sé preciso con los parámetros técnicos (temperatura, ratio, tiempo)
-- Respondé con conocimiento técnico claro y conciso
+Antes de responder, conectá los datos disponibles en este orden:
+1. **Características del café** (origen, proceso, tueste) → qué perfil de sabor esperar
+2. **Objetivo de la preparación** (bebida sola, con leche, equilibrada, intensa) → qué parámetros priorizar
+3. **Limitaciones del equipo o contexto** → qué variables están disponibles para ajustar
+4. **Recomendación concreta** → un punto de partida específico con los valores exactos
+
+## Adaptación al equipo
+
+Cuando el usuario mencione su equipo o sus limitaciones:
+- Trabajá dentro de esas limitaciones, no las ignorés
+- Si no puede ajustar temperatura, enfocate en molienda, dosis y ratio
+- Si no conocés el equipo específico, preguntá qué variables puede controlar
+- Nunca recomendés algo que el usuario ya dijo que no puede hacer
+
+## Formato de respuesta
+
+- Empezá con el razonamiento: por qué el café se comporta de cierta manera
+- Seguí con la recomendación: parámetros concretos (números, no rangos cuando sea posible)
+- Cerrá con el próximo paso: qué ajustar primero si el resultado no es el esperado
+- Si falta información clave para dar una recomendación precisa, hacé una sola pregunta
+
+## Reglas generales
+
+- Tono cálido y didáctico, como un mentor barista
+- Respondé siempre en español
 - NO incluyas recetas de usuarios en tu respuesta — esas se mostrarán por separado
-- Si no sabés algo, decilo honestamente
-- Respondé siempre en español"""
+- Si genuinamente no sabés algo, decilo y sugerí cómo encontrar la respuesta"""
 
 INTENT_KEYWORDS = {
     "recipe": ["receta", "cómo preparo", "cómo hago", "parámetros", "ratio",
@@ -33,7 +48,7 @@ INTENT_KEYWORDS = {
                "french press", "kalita", "filtrado"],
     "troubleshoot": ["ácido", "amargo", "astringente", "salado", "plano",
                      "defecto", "problema", "error", "mal", "raro", "extraño",
-                     "corregir", "arreglar", "mejorar", "channeling"],
+                     "corregir", "arreglar", "mejorar", "channeling", "intenso"],
     "origin": ["origen", "país", "etiopía", "colombia", "brasil", "kenia",
                "guatemala", "sumatra", "proceso", "lavado", "natural", "honey",
                "variedad", "altitude", "altitud"],
@@ -50,12 +65,62 @@ def detect_intent(query: str) -> list[str]:
     return intents if intents else ["general"]
 
 class ConsultantAgent:
-    def __init__(self):
+    def __init__(self, gemini_api_key: str = ""):
         self.document_manager = DocumentManager()
         self.recipe_manager = RecipeManager()
         self.groq_client = Groq(api_key=Config.GROQ_API_KEY)
-        self.genai_client = genai.Client(api_key=Config.GOOGLE_API_KEY)
+        self.gemini_api_key = gemini_api_key or Config.GOOGLE_API_KEY
+        self.genai_client = None
+        if self.gemini_api_key:
+            self.genai_client = genai.Client(api_key=self.gemini_api_key)
         self.supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
+
+    def _generate_with_gemini(self, messages: list[dict]) -> str:
+        gemini_messages = []
+        system = None
+        for msg in messages:
+            if msg["role"] == "system":
+                system = msg["content"]
+            else:
+                role = "user" if msg["role"] == "user" else "model"
+                gemini_messages.append(types.Content(
+                    role=role,
+                    parts=[types.Part(text=msg["content"])]
+                ))
+        response = self.genai_client.models.generate_content(
+            model=Config.GEMINI_MODEL,
+            contents=gemini_messages,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=Config.TEMPERATURE,
+                max_output_tokens=Config.MAX_TOKENS,
+            )
+        )
+        return response.text
+
+    def _generate_with_groq(self, messages: list[dict]) -> str:
+        response = self.groq_client.chat.completions.create(
+            model=Config.GROQ_MODEL,
+            messages=messages,
+            temperature=Config.TEMPERATURE,
+            max_tokens=Config.MAX_TOKENS,
+        )
+        return response.choices[0].message.content
+
+    def _generate(self, messages: list[dict]) -> tuple[str, str]:
+        if self.genai_client:
+            try:
+                answer = self._generate_with_gemini(messages)
+                logger.info("Respuesta generada con Gemini Flash")
+                return answer, "gemini"
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                    logger.warning("Gemini quota agotada — fallback a Groq")
+                else:
+                    logger.warning(f"Error en Gemini ({e}) — fallback a Groq")
+        answer = self._generate_with_groq(messages)
+        logger.info("Respuesta generada con Groq/Llama")
+        return answer, "groq"
 
     def build_context(self, query: str, cafe_id: str = "") -> tuple[str, list[str], list[str], list[dict]]:
         intents = detect_intent(query)
@@ -94,23 +159,16 @@ class ConsultantAgent:
 
 Pregunta: {query}"""
 
-        groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for msg in history[-6:]:
-            groq_messages.append({
+            messages.append({
                 "role": msg["role"] if msg["role"] == "user" else "assistant",
                 "content": msg["content"]
             })
-        groq_messages.append({"role": "user", "content": user_message})
+        messages.append({"role": "user", "content": user_message})
 
-        response = self.groq_client.chat.completions.create(
-            model=Config.GROQ_MODEL,
-            messages=groq_messages,
-            temperature=Config.TEMPERATURE,
-            max_tokens=Config.MAX_TOKENS,
-        )
-
-        answer = response.choices[0].message.content
-        logger.info(f"Respuesta generada ({len(answer)} chars)")
+        answer, model_used = self._generate(messages)
+        logger.info(f"Respuesta generada ({len(answer)} chars) via {model_used}")
 
         try:
             self.supabase.table("query_logs").insert({

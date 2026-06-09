@@ -307,6 +307,15 @@ def login_page(supabase, local_storage):
                         st.session_state.cafe_name = ""
                 else:
                     st.session_state.cafe_name = ""
+                # Cargar gemini_api_key de la cafetería
+                if st.session_state.cafe_id:
+                    try:
+                        key_resp = supabase.table("cafes").select("gemini_api_key").eq("id", st.session_state.cafe_id).single().execute()
+                        st.session_state.gemini_api_key = key_resp.data.get("gemini_api_key", "") if key_resp.data else ""
+                    except:
+                        st.session_state.gemini_api_key = ""
+                else:
+                    st.session_state.gemini_api_key = ""
                 st.rerun()
             except Exception:
                 st.error("Email o contraseña incorrectos")
@@ -1064,6 +1073,15 @@ def main():
                 st.session_state.cafe_name = ""
         else:
             st.session_state.cafe_name = ""
+    if "gemini_api_key" not in st.session_state:
+        if st.session_state.get("cafe_id"):
+            try:
+                key_resp = supabase.table("cafes").select("gemini_api_key").eq("id", st.session_state.cafe_id).single().execute()
+                st.session_state.gemini_api_key = key_resp.data.get("gemini_api_key", "") if key_resp.data else ""
+            except:
+                st.session_state.gemini_api_key = ""
+        else:
+            st.session_state.gemini_api_key = ""
 
     token = st.session_state.session.access_token
     supabase.postgrest.auth(token)
@@ -1071,7 +1089,7 @@ def main():
     recipe_manager = RecipeManager()
     recipe_manager.supabase.postgrest.auth(token)
 
-    agent = ConsultantAgent()
+    agent = ConsultantAgent(gemini_api_key=st.session_state.get("gemini_api_key", ""))
 
     page = sidebar(supabase, recipe_manager, local_storage)
 
