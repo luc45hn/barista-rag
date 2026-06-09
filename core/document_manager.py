@@ -9,8 +9,9 @@ logger = get_logger("document_manager")
 class DocumentManager:
     def __init__(self):
         self.supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
+        embedding_key = Config.GOOGLE_EMBEDDING_KEY or Config.GOOGLE_API_KEY
         self.genai_client = genai.Client(
-            api_key=Config.GOOGLE_API_KEY,
+            api_key=embedding_key,
             http_options={"api_version": "v1"}
         )
 

@@ -55,8 +55,11 @@ def chunk_markdown(text: str, chunk_size: int = 1000, overlap: int = 150) -> lis
 
 def ingest_documents():
     Config.validate()
-    client = genai.Client(api_key=Config.GOOGLE_API_KEY,
-                          http_options={"api_version": "v1"})
+    embedding_key = Config.GOOGLE_EMBEDDING_KEY or Config.GOOGLE_API_KEY
+    client = genai.Client(
+        api_key=embedding_key,
+        http_options={"api_version": "v1"}
+    )
     supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
 
     kb_path = Path(Config.KNOWLEDGE_BASE_DIR)
@@ -68,7 +71,11 @@ def ingest_documents():
 
     logger.info(f"Encontrados {len(md_files)} archivos para ingestar")
 
-    supabase.table("documents").delete().neq("id", 0).execute()
+    # Solo borrar chunks del knowledge base global (sin cafe_id en metadata)
+    docs = supabase.table("documents").select("id, metadata").execute()
+    for doc in docs.data or []:
+        if doc.get("metadata", {}).get("cafe_id") is None and doc.get("metadata", {}).get("user_document_id") is None:
+            supabase.table("documents").delete().eq("id", doc["id"]).execute()
     logger.info("Tabla documents limpiada")
 
     total_chunks = 0

@@ -11,6 +11,7 @@ class Config:
 
     # LLMs
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    GOOGLE_EMBEDDING_KEY: str = os.getenv("GOOGLE_EMBEDDING_KEY", "")
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
     # App
@@ -23,7 +24,7 @@ class Config:
     TOP_K_RESULTS: int = 4
 
     # LLM config
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
     EMBEDDING_MODEL: str = "gemini-embedding-001"
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     TEMPERATURE: float = 0.3

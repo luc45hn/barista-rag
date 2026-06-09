@@ -66,8 +66,9 @@ def ingest_user_document(
     uploaded_by: str,
 ) -> dict:
     supabase = create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
+    embedding_key = Config.GOOGLE_EMBEDDING_KEY or Config.GOOGLE_API_KEY
     genai_client = genai.Client(
-        api_key=Config.GOOGLE_API_KEY,
+        api_key=embedding_key,
         http_options={"api_version": "v1"}
     )
 
