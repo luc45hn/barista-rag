@@ -46,6 +46,24 @@ class DocumentManager:
         logger.info(f"Encontrados {len(results)} chunks relevantes")
         return results
 
+    def search_by_source(self, query: str, source_filter: str, top_k: int = 2) -> list[dict]:
+        """Busca chunks de un documento específico por nombre de fuente."""
+        query_embedding = self.get_embedding(query)
+
+        params = {
+            "query_embedding": query_embedding,
+            "match_count": 20,
+        }
+
+        response = self.supabase.rpc("match_documents", params).execute()
+        results = response.data or []
+
+        filtered = [
+            r for r in results
+            if source_filter in r.get("metadata", {}).get("source", "")
+        ]
+        return filtered[:top_k]
+
     def format_context(self, results: list[dict]) -> str:
         if not results:
             return ""

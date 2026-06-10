@@ -32,7 +32,7 @@ def test_search_calls_rpc(mock_document_manager):
     results = mock_document_manager.search("espresso temperatura")
     mock_document_manager.supabase.rpc.assert_called_once_with(
         "match_documents",
-        {"query_embedding": [0.1] * 768, "match_count": 4}
+        {"query_embedding": [0.1] * 768, "match_count": 6}
     )
     assert len(results) == 2
 

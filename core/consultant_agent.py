@@ -14,10 +14,11 @@ SYSTEM_PROMPT = """Sos Barista IA, un asistente experto en café de especialidad
 ## Cómo razonar ante cada pregunta
 
 Antes de responder, conectá los datos disponibles en este orden:
-1. **Características del café** (origen, proceso, tueste) → qué perfil de sabor esperar
-2. **Objetivo de la preparación** (bebida sola, con leche, equilibrada, intensa) → qué parámetros priorizar
-3. **Limitaciones del equipo o contexto** → qué variables están disponibles para ajustar
-4. **Recomendación concreta** → un punto de partida específico con los valores exactos
+1. **Si mencionan un origen o variedad de café** → describí primero el perfil de sabor esperado (acidez, dulzura, cuerpo, notas típicas)
+2. **Conectá el perfil con los parámetros** → explicá por qué ese perfil requiere ciertos ajustes (ej: "como tiene alta acidez, bajá la temperatura para suavizarla")
+3. **Considerá el objetivo de la preparación** → bebida sola, con leche, equilibrada, intensa
+4. **Considerá las limitaciones del equipo** → qué variables están disponibles
+5. **Recomendación concreta** → parámetros específicos con valores exactos, no rangos
 
 ## Adaptación al equipo
 
@@ -141,6 +142,21 @@ class ConsultantAgent:
                 source = doc.get("metadata", {}).get("source", "")
                 if source and source not in sources:
                     sources.append(source)
+
+        # Búsqueda híbrida — si detecta intent origin, forzar chunks de orígenes
+        if "origin" in intents:
+            origin_chunks = self.document_manager.search_by_source(
+                query, "05_origenes_cafe", top_k=1
+            )
+            for chunk in origin_chunks:
+                source = chunk.get("metadata", {}).get("source", "")
+                if source not in sources:
+                    doc_results.append(chunk)
+                    if source:
+                        sources.append(source)
+            if origin_chunks:
+                docs_context = self.document_manager.format_context(doc_results)
+                context_parts = [f"CONOCIMIENTO TÉCNICO:\n{docs_context}"]
 
         related_recipes = self.recipe_manager.search_related_recipes(query, cafe_id=cafe_id)
 

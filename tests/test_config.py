@@ -21,7 +21,7 @@ def test_config_has_required_attributes():
 def test_config_default_values():
     assert Config.CHUNK_SIZE == 1000
     assert Config.CHUNK_OVERLAP == 150
-    assert Config.TOP_K_RESULTS == 4
+    assert Config.TOP_K_RESULTS == 6
     assert Config.TEMPERATURE == 0.3
     assert Config.MAX_TOKENS == 1024
     assert Config.EMBEDDING_MODEL == "gemini-embedding-001"
